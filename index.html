@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xadrez online</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Xadrez</h1>
+
+  <section id="lobby">
+    <div class="box">
+      <h2>Jogar com um amigo</h2>
+      <p>Um cria a sala e envia o código. O outro digita o código e entra.</p>
+      <button id="btnCreate">Criar sala</button>
+      <p id="roomInfo" class="info"></p>
+      <div class="row">
+        <input id="codeInput" placeholder="Código da sala" maxlength="5" autocomplete="off">
+        <button id="btnJoin">Entrar</button>
+      </div>
+      <hr>
+      <button id="btnLocal" class="ghost">Jogar no mesmo computador</button>
+      <p id="lobbyMsg" class="info"></p>
+    </div>
+  </section>
+
+  <section id="game" hidden>
+    <div class="player" id="topPlayer"><span class="name"></span><span class="caps"></span></div>
+    <div id="boardWrap"><div id="board"></div></div>
+    <div class="player" id="botPlayer"><span class="name"></span><span class="caps"></span></div>
+    <p id="status"></p>
+    <div class="row">
+      <button id="btnResign" class="ghost">Desistir</button>
+      <button id="btnNew" class="ghost">Nova partida</button>
+    </div>
+    <ol id="moves"></ol>
+  </section>
+</main>
+
+<div id="promo" hidden><div class="box" id="promoBtns"></div></div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
