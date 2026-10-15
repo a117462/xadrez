@@ -259,50 +259,248 @@ function rootSearch(st, depth, margin) {
 // Chance de vitória (0-100) a partir de centipeões (fórmula do Lichess).
 const winPct = cp => 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * Math.max(-1000, Math.min(1000, cp)))) - 1);
 
-// Avalia um lance jogado: perda de chance de vitória e classificação.
-function analyzeMove(before, m, recapSq, depth) {
-  depth = depth || 3;
+
+// ---------- utilidades UCI / FEN ----------
+const sqIdx = n => 'abcdefgh'.indexOf(n[0]) + (8 - +n[1]) * 8;
+const moveToUci = m => sqName(m.from) + sqName(m.to) + (m.promo ? m.promo.toLowerCase() : '');
+function uciToMove(st, u) {
+  const from = sqIdx(u.slice(0, 2)), to = sqIdx(u.slice(2, 4)), pr = u[4] ? u[4].toUpperCase() : null;
+  return legalMoves(st).find(m => m.from === from && m.to === to && (m.promo || null) === pr) || null;
+}
+function toFEN(st, fullmove) {
+  const rows = [];
+  for (let r = 0; r < 8; r++) {
+    let s = '', e = 0;
+    for (let c = 0; c < 8; c++) {
+      const p = st.board[r * 8 + c];
+      if (!p) { e++; continue; }
+      if (e) { s += e; e = 0; }
+      s += p[0] === 'w' ? p[1] : p[1].toLowerCase();
+    }
+    rows.push(s + (e || ''));
+  }
+  const cs = (st.castle.wK ? 'K' : '') + (st.castle.wQ ? 'Q' : '') + (st.castle.bK ? 'k' : '') + (st.castle.bQ ? 'q' : '');
+  return rows.join('/') + ' ' + st.turn + ' ' + (cs || '-') + ' ' + (st.ep != null ? sqName(st.ep) : '-') + ' ' + st.half + ' ' + fullmove;
+}
+const posKey = st => st.board.map(p => p || '.').join('') + st.turn
+  + (st.castle.wK ? 'K' : '') + (st.castle.wQ ? 'Q' : '') + (st.castle.bK ? 'k' : '') + (st.castle.bQ ? 'q' : '');
+
+// ---------- livro de aberturas (lances em notação de coordenadas) ----------
+const BOOK_LINES = [
+  // 1.e4 e5
+  'e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 c2c3 g8f6 d2d4 e5d4 c3d4 c5b4 b1c3 f6e4',
+  'e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 d2d3 g8f6 c2c3 d7d6 e1g1 e8g8 b2b4 c5b6',
+  'e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 b2b4 c5b4 c2c3 b4a5 d2d4 e5d4 e1g1 g8f6',
+  'e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 d2d4 e5d4 e1g1 f6e4 f1e1 d7d5 c4d5 d8d5 b1c3 d5a5',
+  'e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 f3g5 d7d5 e4d5 c6a5 c4b5 c7c6 d5c6 b7c6 b5e2 h7h6',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7 f1e1 b7b5 a4b3 d7d6 c2c3 e8g8 h2h3 c6a5 b3c2 c7c5 d2d4 d8c7',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c8e6',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 g8f6 e1g1 f6e4 d2d4 e4d6 b5c6 d7c6 d4e5 d6f5 d1d8 e8d8 b1c3 d8e8',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 g8f6 e1g1 f8c5 f3e5 c6e5 d2d4 c5d6 d4e5 d6e5',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5c6 d7c6 e1g1 f7f6 d2d4 e5d4 f3d4 c8d7',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 f8c5 c2c3 g8f6 e1g1 e8g8 d2d4 c5b6',
+  'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4 f3d4 g8f6 d4c6 b7c6 e4e5 d8e7 d1e2 f6d5 c2c4 c8a6',
+  'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4 f3d4 f8c5 c1e3 d8f6 c2c3 g8e7 f1c4 e8g8',
+  'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4 f3d4 f8c5 d4b3 c5b6 b1c3 g8f6 d1e2 e8g8',
+  'e2e4 e7e5 g1f3 b8c6 b1c3 g8f6 f1b5 f8b4 e1g1 e8g8 d2d3 d7d6 c1g5 b4c3 b2c3 d8e7 f1e1 c6d8',
+  'e2e4 e7e5 g1f3 b8c6 b1c3 g8f6 d2d4 e5d4 f3d4 f8b4 d4c6 b7c6 f1d3 d7d5 e4d5 c6d5',
+  'e2e4 e7e5 g1f3 g8f6 f3e5 d7d6 e5f3 f6e4 d2d4 d6d5 f1d3 f8e7 e1g1 b8c6 c2c4 c6b4 f1e1 c8g4',
+  'e2e4 e7e5 g1f3 g8f6 d2d4 f6e4 f1d3 d7d5 f3e5 b8d7 e5d7 c8d7 e1g1 f8d6',
+  'e2e4 e7e5 g1f3 d7d6 d2d4 g8f6 b1c3 b8d7 f1c4 f8e7 e1g1 e8g8 d1e2 c7c6 a2a4 e5d4',
+  'e2e4 e7e5 g1f3 d7d6 d2d4 e5d4 f3d4 g8f6 b1c3 f8e7 f1e2 e8g8 e1g1 c7c5',
+  'e2e4 e7e5 b1c3 g8f6 f2f4 d7d5 f4e5 f6e4 g1f3 f8e7 d2d4 e8g8 f1d3 f7f5',
+  'e2e4 e7e5 b1c3 g8f6 g2g3 d7d5 e4d5 f6d5 f1g2 d5b6 g1e2 b8c6 e1g1 f8e7',
+  'e2e4 e7e5 b1c3 b8c6 f1c4 g8f6 d2d3 f8b4 g1f3 d7d6 c1g5 h7h6 g5h4 b4c3',
+  'e2e4 e7e5 f2f4 e5f4 g1f3 g7g5 h2h4 g5g4 f3e5 g8f6 d2d4 d7d6 e5d3 f6e4',
+  'e2e4 e7e5 f2f4 e5f4 g1f3 g7g5 f1c4 g5g4 e1g1 g4f3 d1f3 d8f6 e4e5 f6e5 d2d3 f8h6',
+  'e2e4 e7e5 f2f4 f8c5 g1f3 d7d6 c2c3 g8f6 d2d4 c5b6 f1d3 e8g8',
+  'e2e4 e7e5 f2f4 d7d5 e4d5 e5f4 g1f3 g8f6 f1c4 f6d5 e1g1 f8e7',
+  'e2e4 e7e5 d2d4 e5d4 c2c3 d4c3 f1c4 c3b2 c1b2 d7d5 c4d5 g8f6',
+  'e2e4 e7e5 f1c4 g8f6 d2d3 c7c6 g1f3 d7d5 c4b3 f8d6 e1g1 e8g8',
+  'e2e4 e7e5 d2d4 e5d4 d1d4 b8c6 d4e3 g8f6 b1c3 f8b4 c1d2 e8g8 e1c1 f8e8',
+  // 1.e4 c5 (Siciliana)
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 a7a6 c1e3 e7e5 d4b3 c8e6 f2f3 f8e7 d1d2 e8g8 e1c1 b8d7',
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 a7a6 f1e2 e7e5 d4b3 f8e7 e1g1 e8g8 c1e3 c8e6',
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 a7a6 c1g5 e7e6 f2f4 f8e7 d1f3 d8c7 e1c1 b8d7',
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 g7g6 c1e3 f8g7 f2f3 e8g8 d1d2 b8c6 f1c4 c8d7 e1c1 a8c8',
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 e7e6 f1e2 f8e7 e1g1 e8g8 f2f4 b8c6 c1e3 c8d7',
+  'e2e4 c7c5 g1f3 b8c6 d2d4 c5d4 f3d4 g8f6 b1c3 d7d6 f1e2 e7e6 e1g1 f8e7 c1e3 e8g8',
+  'e2e4 c7c5 g1f3 b8c6 d2d4 c5d4 f3d4 g8f6 b1c3 e7e5 d4b5 d7d6 c1g5 a7a6 b5a3 b7b5 g5f6 g7f6 c3d5 f6f5',
+  'e2e4 c7c5 g1f3 b8c6 d2d4 c5d4 f3d4 g8f6 b1c3 d7d6 c1g5 e7e6 d1d2 a7a6 e1c1 c8d7 f2f4 h7h6',
+  'e2e4 c7c5 g1f3 e7e6 d2d4 c5d4 f3d4 a7a6 f1d3 g8f6 e1g1 d8c7 f2f4 b8c6',
+  'e2e4 c7c5 g1f3 e7e6 d2d4 c5d4 f3d4 b8c6 b1c3 d8c7 f1e2 a7a6 e1g1 g8f6 c1e3 f8e7',
+  'e2e4 c7c5 g1f3 e7e6 d2d4 c5d4 f3d4 g8f6 b1c3 d7d6 g2g4 h7h6 h2h3 b8c6 c1e3 a7a6',
+  'e2e4 c7c5 c2c3 g8f6 e4e5 f6d5 d2d4 c5d4 g1f3 b8c6 c3d4 d7d6 f1c4 d5b6 c4b3 d6e5 f3e5 c6e5',
+  'e2e4 c7c5 c2c3 d7d5 e4d5 d8d5 d2d4 g8f6 g1f3 c8g4 f1e2 e7e6 e1g1 b8c6',
+  'e2e4 c7c5 b1c3 b8c6 g2g3 g7g6 f1g2 f8g7 d2d3 d7d6 c1e3 e7e6 d1d2 g8e7',
+  'e2e4 c7c5 b1c3 b8c6 f2f4 g7g6 g1f3 f8g7 f1c4 e7e6 f4f5 g6f5 d2d3 g8e7',
+  'e2e4 c7c5 d2d4 c5d4 c2c3 d4c3 b1c3 b8c6 g1f3 d7d6 f1c4 e7e6 e1g1 g8f6 d1e2 f8e7',
+  'e2e4 c7c5 g1f3 d7d6 f1b5 c8d7 b5d7 d8d7 e1g1 b8c6 c2c3 g8f6 f1e1 e7e6',
+  'e2e4 c7c5 g1f3 b8c6 f1b5 g7g6 b5c6 d7c6 d2d3 f8g7 h2h3 g8f6 b1c3 e8g8',
+  // 1.e4 outras
+  'e2e4 e7e6 d2d4 d7d5 e4e5 c7c5 c2c3 b8c6 g1f3 d8b6 a2a3 c5c4 b2b4 c4b3 a3a4',
+  'e2e4 e7e6 d2d4 d7d5 e4e5 c7c5 c2c3 b8c6 g1f3 d8b6 a2a3 g8h6 b2b4 c5d4 c3d4 h6f5',
+  'e2e4 e7e6 d2d4 d7d5 b1c3 f8b4 e4e5 c7c5 a2a3 b4c3 b2c3 g8e7 d1g4 d8c7 g4g7 h8g8 g7h7 c5d4 g1e2 b8c6',
+  'e2e4 e7e6 d2d4 d7d5 b1c3 f8b4 e4e5 c7c5 a2a3 b4c3 b2c3 g8e7 g1f3 b8c6 a3a4 d8a5 c1d2 c5c4',
+  'e2e4 e7e6 d2d4 d7d5 b1c3 g8f6 c1g5 f8e7 e4e5 f6d7 g5e7 d8e7 f2f4 e8g8 g1f3 c7c5',
+  'e2e4 e7e6 d2d4 d7d5 b1c3 g8f6 e4e5 f6d7 f2f4 c7c5 g1f3 b8c6 c1e3 c5d4 f3d4 f8c5',
+  'e2e4 e7e6 d2d4 d7d5 b1d2 g8f6 e4e5 f6d7 f1d3 c7c5 c2c3 b8c6 g1e2 c5d4 c3d4 f7f6',
+  'e2e4 e7e6 d2d4 d7d5 b1d2 c7c5 g1f3 b8c6 e4d5 e6d5 f1b5 f8d6 d4c5 d6c5 e1g1 g8e7',
+  'e2e4 e7e6 d2d4 d7d5 e4d5 e6d5 g1f3 g8f6 f1d3 f8d6 e1g1 e8g8 b1c3 b8c6 c1g5 c8g4',
+  'e2e4 c7c6 d2d4 d7d5 b1c3 d5e4 c3e4 c8f5 e4g3 f5g6 h2h4 h7h6 g1f3 b8d7 h4h5 g6h7 f1d3 h7d3 d1d3 e7e6',
+  'e2e4 c7c6 d2d4 d7d5 b1c3 d5e4 c3e4 b8d7 e4g5 g8f6 f1d3 e7e6 g1f3 f8d6 d1e2 h7h6',
+  'e2e4 c7c6 d2d4 d7d5 e4e5 c8f5 g1f3 e7e6 f1e2 c6c5 e1g1 b8c6 c2c3 g8e7 b1a3 c5d4',
+  'e2e4 c7c6 d2d4 d7d5 e4e5 c8f5 b1c3 e7e6 g2g4 f5g6 g1e2 g8e7 h2h4 h7h5',
+  'e2e4 c7c6 d2d4 d7d5 e4d5 c6d5 f1d3 b8c6 c2c3 g8f6 c1f4 c8g4 d1b3 d8d7',
+  'e2e4 c7c6 d2d4 d7d5 e4d5 c6d5 c2c4 g8f6 b1c3 e7e6 g1f3 f8e7 c4d5 f6d5 f1d3 b8c6 e1g1 e8g8',
+  'e2e4 c7c6 d2d4 d7d5 b1d2 d5e4 d2e4 b8d7 g1f3 g8f6 e4g3 e7e6 f1d3 f8e7 e1g1 e8g8',
+  'e2e4 d7d5 e4d5 d8d5 b1c3 d5a5 d2d4 g8f6 g1f3 c7c6 f1c4 c8f5 c1d2 e7e6 d1e2 f8b4',
+  'e2e4 d7d5 e4d5 g8f6 d2d4 f6d5 g1f3 g7g6 f1e2 f8g7 e1g1 e8g8 c2c4 d5b6 b1c3 b8c6',
+  'e2e4 d7d6 d2d4 g8f6 b1c3 g7g6 g1f3 f8g7 f1e2 e8g8 e1g1 c7c6 a2a4 b8d7 c1f4 d8c7',
+  'e2e4 d7d6 d2d4 g8f6 b1c3 g7g6 f2f4 f8g7 g1f3 e8g8 f1d3 b8a6 e1g1 c7c5',
+  'e2e4 g8f6 e4e5 f6d5 d2d4 d7d6 g1f3 c8g4 f1e2 e7e6 e1g1 f8e7 c2c4 d5b6 b1c3 e8g8',
+  'e2e4 g7g6 d2d4 f8g7 b1c3 d7d6 g1f3 g8f6 f1e2 e8g8 e1g1 c7c6',
+  'e2e4 b7b6 d2d4 c8b7 b1c3 e7e6 g1f3 g8f6 f1d3 f8b4 d1e2 e8g8',
+  // 1.d4
+  'd2d4 d7d5 c2c4 e7e6 b1c3 g8f6 c1g5 f8e7 e2e3 e8g8 g1f3 h7h6 g5h4 b7b6 c4d5 e6d5 h4f6 e7f6',
+  'd2d4 d7d5 c2c4 e7e6 b1c3 g8f6 g1f3 f8e7 c1f4 e8g8 e2e3 c7c5 d4c5 e7c5 a2a3 b8c6',
+  'd2d4 d7d5 c2c4 e7e6 c4d5 e6d5 b1c3 g8f6 c1g5 f8e7 e2e3 e8g8 f1d3 b8d7 g1e2 f8e8',
+  'd2d4 d7d5 c2c4 d5c4 g1f3 g8f6 e2e3 e7e6 f1c4 c7c5 e1g1 a7a6 d1e2 b7b5 c4b3 c5d4',
+  'd2d4 d7d5 c2c4 d5c4 e2e3 g8f6 f1c4 e7e6 g1f3 c7c5 e1g1 a7a6 d1e2 b7b5 c4b3 c5d4',
+  'd2d4 d7d5 c2c4 c7c6 g1f3 g8f6 b1c3 d5c4 a2a4 c8f5 e2e3 e7e6 f1c4 f8b4 e1g1 b8d7 d1e2 f5g6',
+  'd2d4 d7d5 c2c4 c7c6 g1f3 g8f6 b1c3 e7e6 e2e3 b8d7 f1d3 d5c4 d3c4 b7b5 c4d3 a7a6 e3e4 c6c5',
+  'd2d4 d7d5 c2c4 c7c6 g1f3 g8f6 e2e3 e7e6 b1d2 b8d7 f1d3 f8d6 e1g1 e8g8 e3e4 d5e4 d2e4 f6e4',
+  'd2d4 d7d5 c2c4 c7c6 b1c3 g8f6 e2e3 e7e6 g1f3 b8d7 d1c2 f8d6 f1d3 e8g8',
+  'd2d4 g8f6 c2c4 e7e6 g1f3 b7b6 g2g3 c8b7 f1g2 f8e7 e1g1 e8g8 b1c3 f6e4 d1c2 e4c3 c2c3 c7c5',
+  'd2d4 g8f6 c2c4 e7e6 b1c3 f8b4 e2e3 e8g8 f1d3 d7d5 g1f3 c7c5 e1g1 b8c6 a2a3 b4c3 b2c3 d5c4 d3c4 d8c7',
+  'd2d4 g8f6 c2c4 e7e6 b1c3 f8b4 d1c2 e8g8 a2a3 b4c3 c2c3 b7b6 c1g5 c8b7 e2e3 d7d6',
+  'd2d4 g8f6 c2c4 e7e6 b1c3 f8b4 g1f3 c7c5 e2e3 b8c6 f1d3 b4c3 b2c3 d7d6 e3e4 e6e5',
+  'd2d4 g8f6 c2c4 g7g6 b1c3 f8g7 e2e4 d7d6 g1f3 e8g8 f1e2 e7e5 e1g1 b8c6 d4d5 c6e7 f3e1 f6d7',
+  'd2d4 g8f6 c2c4 g7g6 b1c3 f8g7 e2e4 d7d6 f2f3 e8g8 c1e3 e7e5 g1e2 c7c6 d1d2 b8d7',
+  'd2d4 g8f6 c2c4 g7g6 b1c3 d7d5 c4d5 f6d5 e2e4 d5c3 b2c3 f8g7 g1f3 c7c5 f1e2 e8g8 e1g1 b8c6 c1e3 c5d4',
+  'd2d4 g8f6 c2c4 g7g6 b1c3 d7d5 g1f3 f8g7 d1b3 d5c4 b3c4 e8g8 e2e4 c8g4 c1e3 f6d7',
+  'd2d4 g8f6 c2c4 c7c5 d4d5 e7e6 b1c3 e6d5 c4d5 d7d6 e2e4 g7g6 g1f3 f8g7 f1e2 e8g8 e1g1 f8e8',
+  'd2d4 g8f6 c2c4 c7c5 d4d5 b7b5 c4b5 a7a6 b5a6 c8a6 b1c3 d7d6 e2e4 a6f1 e1f1 g7g6 g2g3 f8g7 f1g2 e8g8',
+  'd2d4 g8f6 c2c4 e7e6 g2g3 d7d5 f1g2 f8e7 g1f3 e8g8 e1g1 d5c4 d1c2 a7a6 c2c4 b7b5 c4c2 c8b7',
+  'd2d4 g8f6 c2c4 e7e6 g2g3 d7d5 g1f3 f8e7 f1g2 e8g8 e1g1 d5c4 d1c2 a7a6 a2a4 c7c5',
+  'd2d4 d7d5 g1f3 g8f6 c1f4 e7e6 e2e3 c7c5 c2c3 b8c6 b1d2 f8d6 f4g3 e8g8 f1d3 d8e7',
+  'd2d4 d7d5 g1f3 g8f6 c1f4 c7c5 e2e3 b8c6 c2c3 d8b6 d1b3 c5c4 b3c2 c8f5 f4g3 e7e6',
+  'd2d4 d7d5 g1f3 g8f6 e2e3 e7e6 f1d3 c7c5 c2c3 b8c6 b1d2 f8d6 e1g1 e8g8 d4c5 d6c5 e3e4 d5e4',
+  'd2d4 g8f6 c1g5 f6e4 g5f4 c7c5 f2f3 d8b6 b2b3 e4d6 e2e3 c5d4 e3d4 b8c6',
+  'd2d4 g8f6 c1g5 e7e6 e2e3 h7h6 g5h4 f8e7 b1d2 d7d5 f1d3 b8d7 g1f3 e8g8',
+  'd2d4 f7f5 g2g3 g8f6 f1g2 e7e6 g1f3 f8e7 e1g1 e8g8 c2c4 d7d6 b1c3 d8e8',
+  'd2d4 f7f5 c2c4 g8f6 g2g3 e7e6 f1g2 f8e7 g1f3 e8g8 e1g1 d7d6 b1c3 d8e8',
+  'd2d4 d7d5 g1f3 g8f6 g2g3 e7e6 f1g2 f8e7 e1g1 e8g8 c2c4 d5c4 d1c2 b7b5',
+  'd2d4 g8f6 g1f3 e7e6 c1g5 h7h6 g5h4 d7d5 e2e3 f8e7 b1d2 e8g8 f1d3 b7b6',
+  'd2d4 d7d6 e2e4 g8f6 b1c3 g7g6 f2f4 f8g7 g1f3 c7c5 f1b5 c8d7 e4e5 f6g4',
+  // flancos
+  'c2c4 e7e5 b1c3 g8f6 g1f3 b8c6 g2g3 d7d5 c4d5 f6d5 f1g2 d5b6 e1g1 f8e7 d2d3 e8g8',
+  'c2c4 e7e5 b1c3 b8c6 g2g3 g7g6 f1g2 f8g7 d2d3 d7d6 e2e4 g8e7 g1e2 e8g8',
+  'c2c4 g8f6 b1c3 e7e5 g1f3 b8c6 g2g3 f8b4 f1g2 e8g8 e1g1 e5e4 f3g5 b4c3 d2c3 h7h6',
+  'c2c4 c7c5 g1f3 g8f6 b1c3 b8c6 g2g3 g7g6 f1g2 f8g7 e1g1 e8g8 d2d4 c5d4 f3d4 c6d4',
+  'c2c4 c7c5 g1f3 g8f6 b1c3 e7e6 g2g3 b7b6 f1g2 c8b7 e1g1 f8e7 d2d4 c5d4 d1d4 d7d6',
+  'c2c4 e7e6 b1c3 d7d5 d2d4 g8f6 c1g5 f8e7 e2e3 e8g8 g1f3 h7h6 g5h4 b7b6',
+  'g1f3 d7d5 c2c4 e7e6 g2g3 g8f6 f1g2 f8e7 e1g1 e8g8 b2b3 d5d4 e2e3 b8c6 e3d4 c6d4',
+  'g1f3 d7d5 c2c4 d5d4 b2b4 c7c5 e2e3 b8c6 e3d4 c5d4 c1b2 e7e5',
+  'g1f3 d7d5 g2g3 g8f6 f1g2 c7c6 e1g1 c8g4 d2d3 b8d7 b1d2 e7e6 h2h3 g4h5',
+  'g1f3 d7d5 g2g3 c7c5 f1g2 b8c6 e1g1 e7e5 d2d3 g8f6 b1d2 f8e7 e2e4 d5e4 d3e4 e8g8',
+  'g1f3 g8f6 c2c4 g7g6 b1c3 f8g7 e2e4 d7d6 d2d4 e8g8 f1e2 e7e5 e1g1 b8c6',
+  'g1f3 g8f6 g2g3 g7g6 f1g2 f8g7 e1g1 e8g8 d2d3 d7d6 e2e4 e7e5 b1c3 b8c6',
+  'g1f3 c7c5 c2c4 b8c6 b1c3 e7e5 g2g3 g7g6 f1g2 f8g7 e1g1 g8e7',
+  'g1f3 g8f6 c2c4 e7e6 b1c3 d7d5 d2d4 f8e7 c1g5 e8g8 e2e3 h7h6 g5h4 b7b6',
+  'f2f4 d7d5 g1f3 g8f6 e2e3 g7g6 f1e2 f8g7 e1g1 e8g8 d2d3 c7c5 b1c3 b8c6',
+  'f2f4 d7d5 g1f3 g8f6 e2e3 c8g4 f1e2 e7e6 e1g1 b8d7 b2b3 f8d6 c1b2 e8g8',
+  'b2b3 e7e5 c1b2 b8c6 e2e3 d7d5 f1b5 f8d6 f2f4 d8h4 g2g3 h4e7 g1f3 c8g4',
+  'b2b3 d7d5 c1b2 g8f6 e2e3 e7e6 g1f3 f8e7 f1e2 e8g8 e1g1 c7c5 d2d3 b8c6',
+  'b1c3 d7d5 e2e4 d5e4 c3e4 g8f6 e4g3 e7e5 g1f3 b8c6 f1b5 f8d6',
+  'b1c3 d7d5 d2d4 g8f6 c1f4 c7c6 g1f3 c8f5 e2e3 e7e6 f1d3 f5d3 d1d3 f8e7',
+  'g2g3 d7d5 f1g2 g8f6 g1f3 c7c6 e1g1 c8f5 d2d3 e7e6 b1d2 f8e7',
+  'a2a3 d7d5 g1f3 g8f6 d2d4 e7e6 c2c4 f8e7 e2e3 e8g8',
+  'b2b4 e7e5 c1b2 f8b4 b2e5 g8f6 g1f3 b8c6 e5b2 d7d5'
+];
+let BOOK = null;
+function bookSet() {
+  if (BOOK) return BOOK;
+  BOOK = new Set();
+  BOOK.bad = [];
+  for (const line of BOOK_LINES) {
+    let s = newState();
+    for (const u of line.split(' ')) {
+      const m = uciToMove(s, u);
+      if (!m) { BOOK.bad.push(line + '  <-- falhou em ' + u); break; }
+      s = apply(s, m);
+      BOOK.add(posKey(s));
+    }
+  }
+  return BOOK;
+}
+// Para cada lance da partida: ainda estamos "no livro"? (uma vez que sai, não volta)
+function bookFlags(plies) {
+  const set = bookSet();
+  let on = true;
+  return plies.map(p => (on = on && set.has(posKey(apply(p.before, p.move)))));
+}
+
+// ---------- classificação (usada tanto pelo motor interno quanto pelo Stockfish) ----------
+// Quanto material o lance entrega "de graça" (após as trocas de captura).
+function sacrifice(before, m) {
+  if (m.promo) return 0;
+  return matEval(before) + qsearch(apply(before, m), -Infinity, Infinity, 0, matEval);
+}
+
+// c: {bestScore, playedScore, secondScore|null, isTop, forced, sac, recap, prevLoss, book}
+// Notas em centipeões do ponto de vista de quem jogou.
+function classifyMove(c) {
+  const wb = winPct(c.bestScore), wp = winPct(Math.min(c.playedScore, c.bestScore));
+  const loss = Math.max(0, wb - wp);
+  if (c.book) return {cls: 'book', loss: 0};
+  let cls;
+  if (c.forced || c.isTop || loss <= 0.3) cls = 'best';
+  else if (loss <= 2) cls = 'excellent';
+  else if (loss <= 5) cls = 'good';
+  else if (loss <= 10) cls = 'inaccuracy';
+  else if (loss <= 20) cls = 'mistake';
+  else cls = 'blunder';
+  // Miss: o adversário errou e você deixou a vantagem escapar
+  if ((cls === 'inaccuracy' || cls === 'mistake') && c.prevLoss >= 10 && wb >= 65) cls = 'miss';
+  if (!c.forced && (cls === 'best' || cls === 'excellent') && loss <= 1.5) {
+    if (c.sac >= 200 && wp >= 45 && (c.secondScore === null || winPct(c.secondScore) < 85)) cls = 'brilliant';
+    else if (c.secondScore !== null && wb > 5 && wb < 95 && !c.recap && wb - winPct(c.secondScore) >= 15) cls = 'great';
+  }
+  return {cls, loss};
+}
+
+// Motor interno: avalia um lance jogado.
+function analyzeMove(before, m, recapSq, depth, extra) {
+  depth = depth || 3; extra = extra || {};
   const R = rootSearch(before, depth, 200);
   const key = x => x.from + '-' + x.to + '-' + (x.promo || '');
   const mk = key(m);
   const entry = R.list.find(e => key(e.m) === mk);
   const playedScore = entry.exact ? entry.score
     : -negamax(apply(before, entry.m), depth - 1, -Infinity, Infinity, 1);
-  const others = R.list.filter(e => e !== entry && key(e.m) !== key(R.best) && e.exact);
-  const secondScore = key(R.best) === mk
-    ? (others.length ? Math.max(...others.map(e => e.score)) : R.bestScore - 200)
-    : R.bestScore;
-  const wb = winPct(R.bestScore), wp = winPct(Math.min(playedScore, R.bestScore));
-  const loss = Math.max(0, wb - wp);
-  const forced = R.list.length === 1;
-
-  let cls;
-  if (forced) cls = 'forced';
-  else if (loss > 20) cls = 'blunder';
-  else if (loss > 10) cls = 'mistake';
-  else if (loss > 5) cls = 'inaccuracy';
-  else if (loss > 2) cls = 'good';
-  else if (loss > 0.3) cls = 'excellent';
-  else cls = 'best';
-
-  if (!forced && loss <= 1.5) {
-    const after = apply(before, m);
-    const sac = matEval(before) + qsearch(after, -Infinity, Infinity, 0, matEval); // material dado de graça
-    if (!m.promo && sac >= 200 && wp >= 45 && wb <= 90) cls = 'brilliant';
-    else if (wb > 5 && wb < 95 && recapSq !== m.to && wb - winPct(secondScore) >= 15) cls = 'great';
-  }
-  return {cls, loss, best: {from: R.best.from, to: R.best.to, promo: R.best.promo || null},
-    bestScore: R.bestScore, playedScore, forced};
+  const isTop = key(R.best) === mk;
+  const others = R.list.filter(e => key(e.m) !== key(R.best) && e.exact);
+  const secondScore = isTop ? (others.length ? Math.max(...others.map(e => e.score)) : R.bestScore - 200) : R.bestScore;
+  const r = classifyMove({bestScore: R.bestScore, playedScore, secondScore, isTop, forced: R.list.length === 1,
+    sac: sacrifice(before, m), recap: recapSq === m.to, prevLoss: extra.prevLoss || 0, book: extra.book});
+  return {cls: r.cls, loss: r.loss, best: {from: R.best.from, to: R.best.to, promo: R.best.promo || null},
+    bestScore: R.bestScore, playedScore};
 }
 //ENDENGINE
 
-if (typeof document === 'undefined') { module.exports = {newState, legalMoves, apply, perft, insufficient, canMate, evaluate, rootSearch, analyzeMove, winPct, MATE}; }
+if (typeof document === 'undefined') { module.exports = {newState, legalMoves, apply, perft, insufficient, canMate, evaluate, rootSearch, analyzeMove, classifyMove, winPct, MATE, bookSet, toFEN}; }
 else {
 /* ===== INTERFACE ===== */
 const $ = s => document.querySelector(s);
 const side = c => c === 'w' ? 'brancas' : 'pretas';
 const Side = c => c === 'w' ? 'Brancas' : 'Pretas';
-const ANA_DEPTH = 3;
+const ANA_DEPTH = 3;   // profundidade do motor interno (reserva)
+/* ===== STOCKFISH ===== */
+// Fontes do Stockfish, em ordem de tentativa: arquivo 'stockfish.js' na mesma pasta do site (opcional)
+// e depois a cópia pública do cdnjs. Se nenhuma carregar, usa-se o motor interno.
+const SF_SOURCES = window.SF_SOURCES || ['stockfish.js', 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js'];
+const SF_DEPTH = window.SF_DEPTH || 12;   // maior = análise mais precisa e mais lenta
 
 /* ===== MODOS DE JOGO (minutos + incremento em segundos; min 0 = sem relógio) ===== */
 const MODES = [[1,0],[2,1],[3,0],[3,2],[5,0],[10,0],[15,10],[30,0],[0,0]].map(([min, inc]) => ({min, inc}));
@@ -318,17 +516,18 @@ const modeTitle = t => t ? `${catOf(t)} · ${tcLabel(t)}` : 'Sem relógio';
 
 /* ===== CLASSIFICAÇÃO DOS LANCES ===== */
 const CLS = {
-  brilliant:  {label: 'Brilhante',  sym: '!!', color: '#26c2a3', desc: 'Um sacrifício forte e difícil de encontrar.'},
-  great:      {label: 'Ótimo',      sym: '!',  color: '#5b8bd9', desc: 'Praticamente o único lance que mantinha a posição.'},
-  best:       {label: 'Melhor',     sym: '★',  color: '#8cc152', desc: 'O melhor lance da posição.'},
-  excellent:  {label: 'Excelente',  sym: '✓',  color: '#6fb98f', desc: 'Quase tão bom quanto o melhor.'},
-  good:       {label: 'Bom',        sym: '•',  color: '#a3b18a', desc: 'Um lance sólido, mas havia algo melhor.'},
-  forced:     {label: 'Forçado',    sym: '→',  color: '#9a9a9a', desc: 'Era o único lance legal.'},
-  inaccuracy: {label: 'Imprecisão', sym: '?!', color: '#f2c14e', desc: 'Perdeu um pouco de vantagem.'},
-  mistake:    {label: 'Erro',       sym: '?',  color: '#f08c3c', desc: 'Entregou uma vantagem importante.'},
-  blunder:    {label: 'Erro grave', sym: '??', color: '#e5484d', desc: 'Jogou a posição fora.'}
+  brilliant:  {label: 'Brilliant',  sym: '!!', color: '#26c2a3'},
+  great:      {label: 'Great Move', sym: '!',  color: '#5b8bd9'},
+  book:       {label: 'Book',       sym: '📖', color: '#a88865'},
+  best:       {label: 'Best',       sym: '⭐', color: '#8cc152'},
+  excellent:  {label: 'Excellent',  sym: '👍', color: '#6fb98f'},
+  good:       {label: 'Good',       sym: '🙂', color: '#a3b18a'},
+  inaccuracy: {label: 'Inaccuracy', sym: '?!', color: '#f2c14e'},
+  mistake:    {label: 'Mistake',    sym: '?',  color: '#f08c3c'},
+  miss:       {label: 'Miss',       sym: '✖',  color: '#ff7769'},
+  blunder:    {label: 'Blunder',    sym: '??', color: '#e5484d'}
 };
-const CLS_ORDER = ['brilliant', 'great', 'best', 'excellent', 'good', 'forced', 'inaccuracy', 'mistake', 'blunder'];
+const CLS_ORDER = ['brilliant', 'great', 'book', 'best', 'excellent', 'good', 'inaccuracy', 'mistake', 'miss', 'blunder'];
 
 let st, mode, me = 'w', sel = null, targets = [], last = null, over = false;
 let caps = {w: [], b: []}, history = [], peer = null, conn = null;
@@ -636,6 +835,114 @@ function setProgress(f) {
   $('#anaPct').textContent = Math.round(f * 100) + '%';
 }
 
+function setAnaMsg(s) { $('#anaMsg').textContent = s; }
+const tick0 = () => new Promise(r => setTimeout(r, 0));
+
+function makeWorker(src) {
+  // Scripts de outro domínio não podem ser Worker direto; um Worker "ponte" (Blob) importa o script.
+  const url = /^https?:/i.test(src)
+    ? URL.createObjectURL(new Blob(['importScripts(' + JSON.stringify(src) + ');'], {type: 'text/javascript'}))
+    : src;
+  return new Worker(url);
+}
+
+// Tenta cada fonte até uma responder ao protocolo UCI. Resolve com o Worker pronto (ou null).
+function startStockfish() {
+  return new Promise(resolve => {
+    let i = 0;
+    const tryNext = () => {
+      if (i >= SF_SOURCES.length) return resolve(null);
+      const src = SF_SOURCES[i++];
+      let w = null, done = false, timer = 0;
+      const fail = () => {
+        if (done) return;
+        done = true; clearTimeout(timer);
+        try { w && w.terminate(); } catch (_) {}
+        tryNext();
+      };
+      try { w = makeWorker(src); } catch (_) { return fail(); }
+      w.onerror = fail;
+      timer = setTimeout(fail, 30000);
+      w.onmessage = e => {
+        const line = typeof e.data === 'string' ? e.data : '';
+        if (line.indexOf('uciok') === 0) { w.postMessage('setoption name MultiPV value 2'); w.postMessage('isready'); }
+        else if (line.indexOf('readyok') === 0 && !done) { done = true; clearTimeout(timer); w.onerror = null; resolve(w); }
+      };
+      w.postMessage('uci');
+    };
+    tryNext();
+  });
+}
+
+// Analisa uma posição (FEN). Resolve com {1: {move, score}, 2: {...}} (nota em centipeões de quem joga).
+function sfAnalyze(w, fen, depth) {
+  return new Promise((resolve, reject) => {
+    const pv = {};
+    const timer = setTimeout(() => reject(new Error('timeout')), 60000);
+    w.onerror = () => { clearTimeout(timer); reject(new Error('worker')); };
+    w.onmessage = e => {
+      const line = typeof e.data === 'string' ? e.data : '';
+      if (line.indexOf('info') === 0 && line.indexOf(' pv ') > 0 && line.indexOf(' score ') > 0) {
+        if (/ (lowerbound|upperbound)/.test(line)) return;
+        const sc = line.match(/ score (cp|mate) (-?\d+)/), mv = line.match(/ pv (\S+)/);
+        const mp = +((line.match(/ multipv (\d+)/) || [])[1] || 1);
+        if (!sc || !mv) return;
+        const v = +sc[2];
+        pv[mp] = {move: mv[1], score: sc[1] === 'cp' ? v : Math.sign(v) * (MATE - Math.abs(v))};
+      } else if (line.indexOf('bestmove') === 0) { clearTimeout(timer); resolve(pv); }
+    };
+    w.postMessage('position fen ' + fen);
+    w.postMessage('go depth ' + depth);
+  });
+}
+
+async function analyzeWithStockfish(w, token) {
+  const n = plies.length, pvs = [];
+  for (let k = 0; k <= n; k++) {
+    if (token !== anaToken) return null;
+    const s = k < n ? plies[k].before : st;
+    pvs.push(legalMoves(s).length ? await sfAnalyze(w, toFEN(s, Math.floor(k / 2) + 1), SF_DEPTH) : null);
+    setProgress((k + 1) / (n + 1));
+  }
+  const flags = bookFlags(plies), res = [];
+  let prevLoss = 0;
+  for (let k = 0; k < n; k++) {
+    const p = plies[k], A = pvs[k], B = pvs[k + 1], u = moveToUci(p.move);
+    if (!A || !A[1]) throw new Error('sem avaliação');
+    const afterState = k + 1 < n ? plies[k + 1].before : st;
+    const isTop = A[1].move === u;
+    let playedScore;
+    if (isTop) playedScore = A[1].score;
+    else if (A[2] && A[2].move === u) playedScore = A[2].score;
+    else if (B && B[1]) playedScore = -B[1].score;
+    else playedScore = inCheck(afterState, afterState.turn) ? MATE - 1 : 0;   // mate dado ou afogamento
+    const secondScore = isTop ? (A[2] ? A[2].score : null) : A[1].score;
+    const prev = k ? plies[k - 1] : null;
+    const r = classifyMove({bestScore: A[1].score, playedScore, secondScore, isTop, forced: legalMoves(p.before).length === 1,
+      sac: sacrifice(p.before, p.move), recap: !!(prev && prev.cap && prev.move.to === p.move.to), prevLoss, book: flags[k]});
+    prevLoss = r.loss;
+    const bm = uciToMove(p.before, A[1].move) || p.move;
+    res.push({cls: r.cls, loss: r.loss, best: {from: bm.from, to: bm.to, promo: bm.promo || null},
+      bestScore: A[1].score, playedScore});
+  }
+  return res;
+}
+
+async function analyzeBuiltin(token) {
+  const flags = bookFlags(plies), res = [];
+  let prevLoss = 0;
+  for (let k = 0; k < plies.length; k++) {
+    if (token !== anaToken) return null;
+    const prev = k ? plies[k - 1] : null;
+    const r = analyzeMove(plies[k].before, plies[k].move, prev && prev.cap ? prev.move.to : -1, ANA_DEPTH, {prevLoss, book: flags[k]});
+    prevLoss = r.loss;
+    res.push(r);
+    setProgress((k + 1) / plies.length);
+    await tick0();
+  }
+  return res;
+}
+
 async function startAnalysis() {
   if (!over || !plies.length) return;
   $('#over').hidden = true;
@@ -647,17 +954,28 @@ async function startAnalysis() {
   if (ana) return showAnalysis();
   $('#anaProgress').hidden = false; $('#anaBody').hidden = true;
   setProgress(0);
-  const token = ++anaToken, res = [];
-  await new Promise(r => setTimeout(r, 30));
-  for (let k = 0; k < plies.length; k++) {
+  setAnaMsg('Carregando o Stockfish...');
+  const token = ++anaToken;
+  let res = null, engine = '';
+  const w = await startStockfish();
+  if (token !== anaToken) { if (w) w.terminate(); return; }
+  if (w) {
+    setAnaMsg(`Analisando com o Stockfish (profundidade ${SF_DEPTH})...`);
+    try { res = await analyzeWithStockfish(w, token); engine = `Stockfish (profundidade ${SF_DEPTH})`; }
+    catch (_) { res = null; }
+    w.terminate();
     if (token !== anaToken) return;
-    const prev = k ? plies[k - 1] : null;
-    res.push(analyzeMove(plies[k].before, plies[k].move, prev && prev.cap ? prev.move.to : -1, ANA_DEPTH));
-    setProgress((k + 1) / plies.length);
-    await new Promise(r => setTimeout(r, 0));
   }
-  if (token !== anaToken) return;
+  if (!res) {
+    setAnaMsg(w ? 'O Stockfish falhou. Usando o motor interno...' : 'Não foi possível carregar o Stockfish. Usando o motor interno (mais simples)...');
+    setProgress(0);
+    await tick0();
+    res = await analyzeBuiltin(token);
+    if (!res) return;
+    engine = 'Motor interno (mais simples que o Stockfish)';
+  }
   ana = summarize(res);
+  ana.engine = engine;
   showAnalysis();
 }
 
@@ -676,6 +994,7 @@ function summarize(res) {
 
 function showAnalysis() {
   $('#anaProgress').hidden = true; $('#anaBody').hidden = false;
+  $('#anaEngine').textContent = 'Engine: ' + ana.engine;
   const nm = c => Side(c) + (mode === 'net' && c === me ? ' (você)' : '');
   let h = `<table class="ana-table"><tr><th></th><th>${nm('w')}</th><th>${nm('b')}</th></tr>`;
   const pct = v => v === null ? '–' : v.toFixed(1) + '%';
@@ -695,7 +1014,7 @@ function showAnalysis() {
     + `<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="#7a6f60" stroke-width=".6" stroke-dasharray="3 3"/>`
     + `<polyline points="${pts}" fill="none" stroke="#f2c14e" stroke-width="1.4"/>`;
   ana.moves.forEach((r, k) => {
-    if (['brilliant', 'great', 'mistake', 'blunder'].includes(r.cls))
+    if (['brilliant', 'great', 'mistake', 'miss', 'blunder'].includes(r.cls))
       g += `<circle cx="${x(k + 1).toFixed(1)}" cy="${y(ana.evalsW[k + 1]).toFixed(1)}" r="2.6" fill="${CLS[r.cls].color}" stroke="#14110f" stroke-width=".6"/>`;
   });
   g += `<line id="gcur" y1="0" y2="${H}" stroke="#f2c14e" stroke-width="1"/>`;
@@ -733,10 +1052,10 @@ function goReview(i, alt) {
   const same = r.best.from === p.move.from && r.best.to === p.move.to && (r.best.promo || null) === (p.move.promo || null);
   const bm = legalMoves(p.before).find(x => x.from === r.best.from && x.to === r.best.to && (x.promo || null) === (r.best.promo || null));
   const bestTxt = bm ? moveText(p.before, bm) : '?';
-  info.innerHTML = `<span class="sym big" style="--c:${cl.color}">${cl.sym}</span> <b>${p.txt}</b> — <b style="color:${cl.color}">${cl.label}</b><br>`
-    + `${cl.desc}${!same && !r.forced ? ` Melhor era <b>${bestTxt}</b>.` : ''}<br>`
+  info.innerHTML = `<span class="sym big" style="--c:${cl.color}">${cl.sym}</span> <b>${p.txt}</b> — <b style="color:${cl.color}">${cl.label}</b>`
+    + `${!same && !['book', 'brilliant', 'great'].includes(r.cls) ? `<br>Melhor era <b>${bestTxt}</b>.` : ''}<br>`
     + `<span class="muted">Avaliação: ${fmtEval(ana.evalsW[i])}</span>`;
-  altBtn.hidden = same || r.forced;
+  altBtn.hidden = same;
   altBtn.textContent = rv.alt ? 'Voltar ao lance jogado' : 'Mostrar melhor lance';
 }
 
@@ -828,8 +1147,8 @@ function stepGhost(now) {
   const vx = (dnd.x - dnd.px) / dt;
   dnd.px = dnd.x;
   dnd.vx += (vx - dnd.vx) * .25;
-  const target = REDUCE ? 0 : Math.max(-9, Math.min(9, dnd.vx / 90));   // no máximo ~9 graus
-  dnd.av += (-170 * (dnd.ang - target) - 13 * dnd.av) * dt;
+  const target = REDUCE ? 0 : Math.max(-20, Math.min(20, dnd.vx / 40));   // inclinação máxima (graus) e sensibilidade
+  dnd.av += (-120 * (dnd.ang - target) - 7 * dnd.av) * dt;   // rigidez da mola e amortecimento
   dnd.ang += dnd.av * dt;
   placeGhost();
   raf = requestAnimationFrame(stepGhost);
