@@ -48,31 +48,40 @@
     <div class="row">
       <button id="btnResign" class="ghost">Desistir</button>
       <button id="btnNew" class="ghost">Nova partida</button>
-      <button id="btnPre" class="ghost" type="button" aria-pressed="false">Pré-moves: off</button>
-      <button id="btnAnalyze" type="button" hidden>Analisar partida</button>
       <button class="ghost menu-btn">Menu</button>
     </div>
-    <p class="info small hint">Clique direito (ou arraste) no tabuleiro para marcar casas e setas. Shift = vermelho, Alt/Ctrl = azul. Clique esquerdo apaga.</p>
-    <p class="info small hint">Pré-moves (só online): ligue o botão e faça lances enquanto o adversário pensa. Pode empilhar vários; Esc cancela a fila.</p>
+    <div class="row">
+      <button id="btnPre" class="ghost toggle" hidden>Pré-moves: OFF</button>
+      <button id="btnPreClear" class="ghost" hidden>Limpar pré-moves</button>
+      <button id="btnAnalyze" class="ghost" hidden>Analisar partida</button>
+    </div>
+    <p class="info small hint">Clique direito (ou arraste) no tabuleiro para marcar casas e setas. Shift = vermelho, Alt/Ctrl = azul. Clique esquerdo apaga. Com os pré-moves ligados, você agenda lances na vez do amigo (Esc cancela).</p>
     <ol id="moves"></ol>
 
-    <section id="analysis" class="box" hidden>
+    <section id="analysis" hidden>
       <h2>Análise da partida</h2>
-      <div id="anProgress">
-        <div class="bar"><div id="anBar"></div></div>
-        <p id="anText" class="info small"></p>
+      <div id="anaProgress">
+        <p class="info small">Analisando os lances no seu navegador. Isso leva alguns segundos...</p>
+        <div class="bar"><div id="anaBar"></div></div>
+        <span id="anaPct">0%</span>
       </div>
-      <div id="anResult" hidden>
-        <div id="anSummary"></div>
-        <div class="row nav">
-          <button id="anPrev" class="ghost" type="button" aria-label="Lance anterior">←</button>
-          <button id="anNext" class="ghost" type="button" aria-label="Próximo lance">→</button>
+      <div id="anaBody" hidden>
+        <div id="anaSummary"></div>
+        <svg id="anaGraph" viewBox="0 0 300 90" preserveAspectRatio="none" aria-label="Gráfico de vantagem"></svg>
+        <p class="info small">Parte clara: vantagem das brancas. Clique no gráfico para ir a um lance.</p>
+        <div class="row navrow">
+          <button id="btnFirst" class="ghost" aria-label="Primeiro lance">«</button>
+          <button id="btnPrev" class="ghost" aria-label="Lance anterior">‹</button>
+          <button id="btnNext" class="ghost" aria-label="Próximo lance">›</button>
+          <button id="btnLast" class="ghost" aria-label="Último lance">»</button>
         </div>
-        <p id="anDetail" class="info small" aria-live="polite"></p>
-        <div class="an-scroll"><table id="anMoves" class="an-moves"></table></div>
-        <p class="info small">Análise feita no seu navegador por um motor simples (busca de 4 lances à frente). Serve como orientação, não como Stockfish.</p>
+        <div id="anaInfo"></div>
+        <div class="row">
+          <button id="btnAlt" class="ghost" hidden>Mostrar melhor lance</button>
+          <button id="btnCloseAna" class="ghost">Fechar análise</button>
+        </div>
+        <div id="anaMoves"></div>
       </div>
-      <button id="btnAnClose" class="ghost" type="button">Fechar análise</button>
     </section>
   </section>
 </main>
@@ -87,7 +96,7 @@
     <p id="overOutcome" class="outcome"></p>
     <div class="row">
       <button id="btnOverNew">Nova partida</button>
-      <button id="btnOverAnalyze" type="button" hidden>Analisar partida</button>
+      <button id="btnOverAnalyze" class="ghost" hidden>Analisar partida</button>
       <button id="btnOverClose" class="ghost">Ver tabuleiro</button>
     </div>
     <button class="link menu-btn">Voltar ao menu</button>
