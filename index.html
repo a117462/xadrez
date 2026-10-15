@@ -48,10 +48,32 @@
     <div class="row">
       <button id="btnResign" class="ghost">Desistir</button>
       <button id="btnNew" class="ghost">Nova partida</button>
+      <button id="btnPre" class="ghost" type="button" aria-pressed="false">Pré-moves: off</button>
+      <button id="btnAnalyze" type="button" hidden>Analisar partida</button>
       <button class="ghost menu-btn">Menu</button>
     </div>
     <p class="info small hint">Clique direito (ou arraste) no tabuleiro para marcar casas e setas. Shift = vermelho, Alt/Ctrl = azul. Clique esquerdo apaga.</p>
+    <p class="info small hint">Pré-moves (só online): ligue o botão e faça lances enquanto o adversário pensa. Pode empilhar vários; Esc cancela a fila.</p>
     <ol id="moves"></ol>
+
+    <section id="analysis" class="box" hidden>
+      <h2>Análise da partida</h2>
+      <div id="anProgress">
+        <div class="bar"><div id="anBar"></div></div>
+        <p id="anText" class="info small"></p>
+      </div>
+      <div id="anResult" hidden>
+        <div id="anSummary"></div>
+        <div class="row nav">
+          <button id="anPrev" class="ghost" type="button" aria-label="Lance anterior">←</button>
+          <button id="anNext" class="ghost" type="button" aria-label="Próximo lance">→</button>
+        </div>
+        <p id="anDetail" class="info small" aria-live="polite"></p>
+        <div class="an-scroll"><table id="anMoves" class="an-moves"></table></div>
+        <p class="info small">Análise feita no seu navegador por um motor simples (busca de 4 lances à frente). Serve como orientação, não como Stockfish.</p>
+      </div>
+      <button id="btnAnClose" class="ghost" type="button">Fechar análise</button>
+    </section>
   </section>
 </main>
 
@@ -65,6 +87,7 @@
     <p id="overOutcome" class="outcome"></p>
     <div class="row">
       <button id="btnOverNew">Nova partida</button>
+      <button id="btnOverAnalyze" type="button" hidden>Analisar partida</button>
       <button id="btnOverClose" class="ghost">Ver tabuleiro</button>
     </div>
     <button class="link menu-btn">Voltar ao menu</button>
