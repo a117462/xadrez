@@ -12,6 +12,10 @@
 
   <section id="lobby">
     <div class="box">
+      <h2>Modo de jogo</h2>
+      <div id="modes"></div>
+      <p class="info small">Vale para quem cria a sala e para o jogo no mesmo computador. Quem entra usa o modo da sala.</p>
+      <hr>
       <h2>Jogar com um amigo</h2>
       <p>Um cria a sala e envia o código. O outro digita o código e entra.</p>
       <button id="btnCreate">Criar sala</button>
@@ -27,19 +31,45 @@
   </section>
 
   <section id="game" hidden>
-    <div class="player" id="topPlayer"><span class="name"></span><span class="caps"></span></div>
-    <div id="boardWrap"><div id="board"></div></div>
-    <div class="player" id="botPlayer"><span class="name"></span><span class="caps"></span></div>
+    <p id="modeTag"></p>
+    <div class="player" id="topPlayer">
+      <div class="who"><span class="name"></span> <span class="caps"></span></div>
+      <span class="clock"></span>
+    </div>
+    <div id="boardWrap">
+      <div id="board"></div>
+      <svg id="marks" viewBox="0 0 8 8" aria-hidden="true"></svg>
+    </div>
+    <div class="player" id="botPlayer">
+      <div class="who"><span class="name"></span> <span class="caps"></span></div>
+      <span class="clock"></span>
+    </div>
     <p id="status"></p>
     <div class="row">
       <button id="btnResign" class="ghost">Desistir</button>
       <button id="btnNew" class="ghost">Nova partida</button>
+      <button class="ghost menu-btn">Menu</button>
     </div>
+    <p class="info small hint">Clique direito (ou arraste) no tabuleiro para marcar casas e setas. Shift = vermelho, Alt/Ctrl = azul. Clique esquerdo apaga.</p>
     <ol id="moves"></ol>
   </section>
 </main>
 
-<div id="promo" hidden><div class="box" id="promoBtns"></div></div>
+<div id="promo" class="overlay" hidden><div class="box" id="promoBtns"></div></div>
+
+<div id="over" class="overlay" hidden>
+  <div class="box result" id="overBox" role="dialog" aria-modal="true" aria-labelledby="overTitle">
+    <div class="icon" id="overIcon"></div>
+    <h2 id="overTitle"></h2>
+    <p id="overDetail"></p>
+    <p id="overOutcome" class="outcome"></p>
+    <div class="row">
+      <button id="btnOverNew">Nova partida</button>
+      <button id="btnOverClose" class="ghost">Ver tabuleiro</button>
+    </div>
+    <button class="link menu-btn">Voltar ao menu</button>
+  </div>
+</div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="script.js"></script>

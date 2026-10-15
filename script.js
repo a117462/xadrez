@@ -117,8 +117,17 @@ function legalMoves(st) {
 }
 
 function insufficient(b) {
-  const ps = b.filter(Boolean).filter(p => p[1] !== 'K');
-  return ps.length === 0 || (ps.length === 1 && 'BN'.includes(ps[0][1]));
+  const ps = [];
+  b.forEach((p, i) => { if (p && p[1] !== 'K') ps.push([p[1], ((i >> 3) + (i & 7)) % 2]); });
+  if (!ps.length) return true;
+  if (ps.length === 1 && 'BN'.includes(ps[0][0])) return true;
+  return ps.every(p => p[0] === 'B' && p[1] === ps[0][1]); // só bispos, todos da mesma cor
+}
+
+// Esse lado ainda consegue (em tese) dar mate? Usado no fim de tempo.
+function canMate(b, color) {
+  const ps = b.filter(p => p && p[0] === color && p[1] !== 'K');
+  return ps.some(p => 'PRQ'.includes(p[1])) || ps.length >= 2;
 }
 
 function perft(st, d) {
@@ -127,17 +136,125 @@ function perft(st, d) {
 }
 //END
 
-if (typeof document === 'undefined') { module.exports = {newState, legalMoves, apply, perft}; }
+if (typeof document === 'undefined') { module.exports = {newState, legalMoves, apply, perft, insufficient, canMate}; }
 else {
 /* ===== INTERFACE ===== */
 const $ = s => document.querySelector(s);
+const side = c => c === 'w' ? 'brancas' : 'pretas';
+const Side = c => c === 'w' ? 'Brancas' : 'Pretas';
+
+/* ===== MODOS DE JOGO (minutos + incremento em segundos; min 0 = sem relógio) ===== */
+const MODES = [[1,0],[2,1],[3,0],[3,2],[5,0],[10,0],[15,10],[30,0],[0,0]].map(([min, inc]) => ({min, inc}));
+const CATS = ['Bullet', 'Blitz', 'Rápida', 'Clássica', 'Livre'];
+const tcOf = m => m.min ? {min: m.min, inc: m.inc} : null;
+function catOf(t) {
+  if (!t) return 'Livre';
+  const s = t.min * 60 + t.inc * 40; // tempo estimado de uma partida, em segundos
+  return s < 180 ? 'Bullet' : s < 480 ? 'Blitz' : s < 1500 ? 'Rápida' : 'Clássica';
+}
+const tcLabel = t => t ? (t.inc ? `${t.min} | ${t.inc}` : `${t.min} min`) : 'Sem relógio';
+const modeTitle = t => t ? `${catOf(t)} · ${tcLabel(t)}` : 'Sem relógio';
+
 let st, mode, me = 'w', sel = null, targets = [], last = null, over = false;
 let caps = {w: [], b: []}, history = [], peer = null, conn = null;
+let tc = null, clock = {w: 0, b: 0}, lastTick = 0, timer = null;
+let marks = [], drag = null;
+let chosen = MODES.find(m => m.min === 5 && m.inc === 0);
+let roomTc = null;
 
+/* ===== MENU: escolha do modo ===== */
+function buildModes() {
+  const box = $('#modes');
+  box.innerHTML = '';
+  for (const cat of CATS) {
+    const list = MODES.filter(m => catOf(tcOf(m)) === cat);
+    if (!list.length) continue;
+    const g = document.createElement('div');
+    g.className = 'mode-group';
+    g.innerHTML = `<span class="mode-cat">${cat}</span>`;
+    const wrap = document.createElement('div');
+    wrap.className = 'mode-btns';
+    for (const m of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mode' + (m === chosen ? ' on' : '');
+      b.textContent = m.min ? tcLabel(m) : 'Sem relógio';
+      b.setAttribute('aria-pressed', m === chosen);
+      b.onclick = () => { chosen = m; buildModes(); };
+      wrap.appendChild(b);
+    }
+    g.appendChild(wrap);
+    box.appendChild(g);
+  }
+}
+
+/* ===== RELÓGIO ===== */
+function fmtClock(ms) {
+  ms = Math.max(0, ms);
+  if (ms < 10000) return (ms / 1000).toFixed(1);
+  const s = Math.ceil(ms / 1000), m = Math.floor(s / 60);
+  return m + ':' + String(s % 60).padStart(2, '0');
+}
+
+function updateClocks() {
+  if (!st) return;
+  for (const [el, col] of [['#topPlayer', opp(me)], ['#botPlayer', me]]) {
+    const c = $(el).querySelector('.clock');
+    c.textContent = tc ? fmtClock(clock[col]) : '';
+    c.classList.toggle('run', !!tc && !over && st.turn === col);
+    c.classList.toggle('low', !!tc && clock[col] < 10000);
+  }
+}
+
+/* O tempo só desconta de quem está na vez. */
+function tick() {
+  if (!tc || over || !st) return;
+  const now = performance.now(), dt = now - lastTick;
+  lastTick = now;
+  clock[st.turn] -= dt;
+  if (clock[st.turn] <= 0) { clock[st.turn] = 0; updateClocks(); timeout(st.turn, true); }
+  else updateClocks();
+}
+
+function timeout(loser, notify) {
+  if (over) return;
+  if (notify && mode === 'net' && conn && conn.open) conn.send({t: 'timeout', loser});
+  const winner = opp(loser);
+  const who = mode === 'local' ? `O tempo das ${side(loser)} acabou.`
+    : loser === me ? 'Seu tempo acabou.' : 'O tempo do seu amigo acabou.';
+  if (!canMate(st.board, winner)) finish('Empate', who + ' Mas o adversário não tem material para dar mate.', null);
+  else finish('Tempo esgotado', who, winner);
+}
+
+/* ===== TELA DE FIM DE JOGO ===== */
+function outcome(winner) {
+  if (winner === null) return 'A partida terminou empatada.';
+  if (mode === 'local') return `${Side(winner)} vencem.`;
+  return winner === me ? 'Você venceu!' : 'Seu amigo venceu.';
+}
+
+function finish(title, detail, winner) {
+  if (over) return;
+  over = true; sel = null; targets = [];
+  $('#promo').hidden = true;
+  const out = outcome(winner);
+  setStatus(`${title}. ${out}`);
+  $('#overTitle').textContent = title;
+  $('#overDetail').textContent = detail;
+  $('#overOutcome').textContent = out;
+  $('#overIcon').textContent = winner === null ? '½' : '♚';
+  const k = winner === null ? 'draw' : (mode === 'net' ? (winner === me ? 'win' : 'lose') : 'win');
+  $('#overBox').className = 'box result ' + k;
+  $('#over').hidden = false;
+  render();
+  $('#btnOverNew').focus();
+}
+
+/* ===== TABULEIRO ===== */
 function render() {
   const board = $('#board'), flip = me === 'b';
   board.innerHTML = '';
-  const chk = !over || true ? (inCheck(st, st.turn) ? kingSq(st.board, st.turn) : -1) : -1;
+  const chk = inCheck(st, st.turn) ? kingSq(st.board, st.turn) : -1;
   for (let dr = 0; dr < 8; dr++) for (let dc = 0; dc < 8; dc++) {
     const r = flip ? 7 - dr : dr, c = flip ? 7 - dc : dc, i = r * 8 + c, p = st.board[i];
     const d = document.createElement('div');
@@ -163,20 +280,25 @@ function render() {
   }
   $('#moves').innerHTML = history.map(h => `<li>${h}</li>`).join('');
   $('#moves').scrollTop = 1e6;
+  updateClocks();
+  drawMarks();
 }
 
 function setStatus(t) { $('#status').textContent = t; }
 
 function updateStatus() {
-  const moves = legalMoves(st), chk = inCheck(st, st.turn), who = st.turn === 'w' ? 'Brancas' : 'Pretas';
+  const moves = legalMoves(st), chk = inCheck(st, st.turn);
   if (!moves.length) {
-    over = true;
-    setStatus(chk ? `Xeque-mate! ${opp(st.turn) === 'w' ? 'Brancas' : 'Pretas'} vencem.` : 'Empate por afogamento.');
-  } else if (insufficient(st.board)) { over = true; setStatus('Empate: material insuficiente.'); }
-  else if (st.half >= 100) { over = true; setStatus('Empate: regra dos 50 lances.'); }
-  else {
+    if (chk) finish('Xeque-mate', 'O rei não tem como escapar.', opp(st.turn));
+    else finish('Empate por afogamento', 'Quem joga não tem lances legais, mas o rei não está em xeque.', null);
+  } else if (insufficient(st.board)) {
+    finish('Empate por material insuficiente', 'Nenhum dos lados tem peças suficientes para dar mate.', null);
+  } else if (st.half >= 100) {
+    finish('Empate pela regra dos 50 lances', '50 lances sem captura nem movimento de peão.', null);
+  } else {
     const mine = mode === 'local' || st.turn === me;
-    setStatus((chk ? 'Xeque! ' : '') + (mine ? 'Sua vez.' : `Vez do amigo (${who}).`));
+    const turnTxt = mode === 'local' ? `Vez das ${side(st.turn)}.` : (mine ? 'Sua vez.' : `Vez do amigo (${Side(st.turn)}).`);
+    setStatus((chk ? 'Xeque! ' : '') + turnTxt);
   }
 }
 
@@ -205,42 +327,132 @@ function askPromo(ms) {
   $('#promo').hidden = false;
 }
 
-function play(m, remote) {
+function play(m, remote, clk) {
+  if (over) return;
+  const mover = st.turn;
+  if (tc) {
+    tick();
+    if (over) return; // o tempo acabou antes do lance
+    if (remote) { if (typeof clk === 'number' && clk >= 0) clock[mover] = clk; }
+    else clock[mover] += tc.inc * 1000;
+    lastTick = performance.now();
+  }
   const piece = st.board[m.from], n = apply(st, m);
   const txt = m.castle ? (m.castle === 'K' ? 'O-O' : 'O-O-O')
     : (piece[1] === 'P' ? '' : piece[1]) + sqName(m.from) + (n.captured ? 'x' : '-') + sqName(m.to) + (m.promo ? '=' + m.promo : '');
-  if (n.captured) caps[st.turn].push(n.captured);
+  if (n.captured) caps[mover].push(n.captured);
   history.push(txt);
-  st = n; last = m; sel = null; targets = [];
+  st = n; last = m; sel = null; targets = []; marks = [];
   updateStatus(); render();
-  if (!remote && mode === 'net' && conn) conn.send({t: 'move', from: m.from, to: m.to, promo: m.promo || null});
+  if (!remote && mode === 'net' && conn && conn.open)
+    conn.send({t: 'move', from: m.from, to: m.to, promo: m.promo || null, clk: Math.round(clock[mover])});
 }
 
-function startGame(m, color) {
-  mode = m; me = color || 'w'; st = newState(); sel = null; targets = []; last = null;
+function startGame(m, color, newTc) {
+  mode = m; me = color || 'w'; tc = newTc || null;
+  st = newState(); sel = null; targets = []; last = null; marks = []; drag = null;
   over = false; caps = {w: [], b: []}; history = [];
+  const t0 = tc ? tc.min * 60000 : 0;
+  clock = {w: t0, b: t0};
+  lastTick = performance.now();
+  clearInterval(timer);
+  timer = setInterval(tick, 100);
+  $('#over').hidden = true; $('#promo').hidden = true;
   $('#lobby').hidden = true; $('#game').hidden = false;
+  $('#modeTag').textContent = modeTitle(tc);
   updateStatus(); render();
 }
 
 function endByResign(loser) {
-  over = true; setStatus(`${loser === 'w' ? 'Brancas' : 'Pretas'} desistiram. ${loser === 'w' ? 'Pretas' : 'Brancas'} vencem.`); render();
+  const detail = mode === 'local' ? `${Side(loser)} desistiram.`
+    : loser === me ? 'Você desistiu da partida.' : 'Seu amigo desistiu da partida.';
+  finish('Desistência', detail, opp(loser));
 }
+
+/* ===== SETAS E CÍRCULOS (só visuais; não afetam a partida) ===== */
+const MARK_COLORS = {normal: '#ff9a1f', shift: '#e5484d', alt: '#3b82f6'};
+const colorOf = e => e.shiftKey ? MARK_COLORS.shift : (e.altKey || e.ctrlKey) ? MARK_COLORS.alt : MARK_COLORS.normal;
+
+function sqAt(e) {
+  const b = $('#board'), r = b.getBoundingClientRect(), w = b.clientWidth / 8;
+  const x = Math.floor((e.clientX - r.left - b.clientLeft) / w);
+  const y = Math.floor((e.clientY - r.top - b.clientTop) / w);
+  if (x < 0 || x > 7 || y < 0 || y > 7) return -1;
+  return me === 'b' ? (7 - y) * 8 + (7 - x) : y * 8 + x;
+}
+
+function toggleMark({from, to, color}) {
+  const type = from === to ? 'circle' : 'arrow';
+  const i = marks.findIndex(m => m.type === type && m.from === from && m.to === to);
+  if (i >= 0) { const same = marks[i].color === color; marks.splice(i, 1); if (same) return; }
+  marks.push({type, from, to, color});
+}
+
+function drawMarks() {
+  const svg = $('#marks');
+  if (!svg || !st) return;
+  const pos = i => { let r = i >> 3, c = i & 7; if (me === 'b') { r = 7 - r; c = 7 - c; } return [c + .5, r + .5]; };
+  const list = drag ? marks.concat([{type: drag.from === drag.to ? 'circle' : 'arrow', from: drag.from, to: drag.to, color: drag.color}]) : marks;
+  let h = '';
+  for (const m of list) {
+    const [x1, y1] = pos(m.from);
+    if (m.type === 'circle') {
+      h += `<circle cx="${x1}" cy="${y1}" r=".44" fill="none" stroke="${m.color}" stroke-width=".085" opacity=".85"/>`;
+      continue;
+    }
+    const [x2, y2] = pos(m.to), dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
+    const hl = .42, hw = .5;
+    const tx = x2 - ux * .12, ty = y2 - uy * .12;      // ponta
+    const bx = tx - ux * hl, by = ty - uy * hl;        // base da ponta
+    const sx = x1 + ux * .18, sy = y1 + uy * .18;      // início
+    h += `<g opacity=".85"><line x1="${sx}" y1="${sy}" x2="${bx}" y2="${by}" stroke="${m.color}" stroke-width=".17" stroke-linecap="round"/>`
+      + `<polygon fill="${m.color}" points="${tx},${ty} ${bx - uy * hw / 2},${by + ux * hw / 2} ${bx + uy * hw / 2},${by - ux * hw / 2}"/></g>`;
+  }
+  svg.innerHTML = h;
+}
+
+const boardEl = $('#board');
+boardEl.addEventListener('contextmenu', e => e.preventDefault());
+boardEl.addEventListener('pointerdown', e => {
+  if (e.button === 0) { if (marks.length) { marks = []; drawMarks(); } return; }
+  if (e.button === 2) {
+    const s = sqAt(e);
+    if (s < 0) return;
+    drag = {from: s, to: s, color: colorOf(e)};
+    drawMarks();
+    e.preventDefault();
+  }
+});
+window.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const s = sqAt(e);
+  if (s !== -1 && s !== drag.to) { drag.to = s; drawMarks(); }
+});
+window.addEventListener('pointerup', e => {
+  if (!drag || e.button !== 2) return;
+  const d = drag; drag = null;
+  const s = sqAt(e);
+  if (s !== -1) { d.to = s; toggleMark(d); }
+  drawMarks();
+});
+window.addEventListener('pointercancel', () => { if (drag) { drag = null; drawMarks(); } });
 
 /* ===== REDE (PeerJS: conexão direta entre os dois PCs) ===== */
 function onData(d) {
-  if (d.t === 'move') {
+  if (!d || typeof d !== 'object') return;
+  if (d.t === 'init') startGame('net', 'b', d.tc && d.tc.min ? {min: +d.tc.min, inc: +d.tc.inc || 0} : null);
+  else if (!st) return;
+  else if (d.t === 'move') {
     const m = legalMoves(st).find(x => x.from === d.from && x.to === d.to && (x.promo || null) === d.promo);
-    if (m && st.turn !== me) play(m, true);
-  } else if (d.t === 'resign') endByResign(opp(me));
-  else if (d.t === 'new') startGame('net', opp(me));
+    if (m && !over && st.turn !== me) play(m, true, d.clk);
+  } else if (d.t === 'resign') { if (!over) endByResign(opp(me)); }
+  else if (d.t === 'timeout') { if (!over && (d.loser === 'w' || d.loser === 'b')) timeout(d.loser, false); }
+  else if (d.t === 'new') startGame('net', opp(me), tc);
 }
 
-function setupConn(c, color) {
-  conn = c;
-  c.on('open', () => startGame('net', color));
-  c.on('data', onData);
-  c.on('close', () => { over = true; if (st) { setStatus('O amigo saiu da partida.'); render(); } });
+function onClose() {
+  if (over || !st) return;
+  finish('Partida encerrada', 'Seu amigo saiu da partida.', me);
 }
 
 function peerError(e) {
@@ -248,32 +460,60 @@ function peerError(e) {
 }
 
 $('#btnCreate').onclick = () => {
+  if (peer) peer.destroy();
+  conn = null;
+  roomTc = tcOf(chosen);
   const code = Math.random().toString(36).slice(2, 7).toUpperCase();
   $('#roomInfo').textContent = 'Criando sala...';
   peer = new Peer('xadrez-' + code);
-  peer.on('open', () => { $('#roomInfo').innerHTML = `Código: <b>${code}</b><br>Envie ao amigo e aguarde ele entrar.`; });
-  peer.on('connection', c => { if (conn) return c.close(); setupConn(c, 'w'); });
+  peer.on('open', () => { $('#roomInfo').innerHTML = `Código: <b>${code}</b><br>Modo: ${modeTitle(roomTc)}. Envie o código ao amigo e aguarde ele entrar.`; });
+  peer.on('connection', c => {
+    if (conn) return c.close();
+    conn = c;
+    c.on('data', onData);
+    c.on('close', onClose);
+    const go = () => { c.send({t: 'init', tc: roomTc}); startGame('net', 'w', roomTc); };
+    if (c.open) go(); else c.on('open', go);
+  });
   peer.on('error', peerError);
 };
 
 $('#btnJoin').onclick = () => {
   const code = $('#codeInput').value.trim().toUpperCase();
   if (!code) return;
+  if (peer) peer.destroy();
   $('#lobbyMsg').textContent = 'Conectando...';
   peer = new Peer();
-  peer.on('open', () => setupConn(peer.connect('xadrez-' + code, {reliable: true}), 'b'));
+  peer.on('open', () => {
+    const c = peer.connect('xadrez-' + code, {reliable: true});
+    conn = c;
+    c.on('data', onData);   // a partida começa quando o anfitrião envia o modo (init)
+    c.on('close', onClose);
+  });
   peer.on('error', peerError);
 };
 
-$('#btnLocal').onclick = () => startGame('local', 'w');
+$('#btnLocal').onclick = () => startGame('local', 'w', tcOf(chosen));
+
 $('#btnResign').onclick = () => {
   if (over || !confirm('Desistir da partida?')) return;
-  if (mode === 'net') { conn.send({t: 'resign'}); endByResign(me); }
+  if (mode === 'net') { if (conn && conn.open) conn.send({t: 'resign'}); endByResign(me); }
   else endByResign(st.turn);
 };
-$('#btnNew').onclick = () => {
-  if (!confirm('Começar nova partida?')) return;
-  if (mode === 'net') { conn.send({t: 'new'}); startGame('net', opp(me)); }
-  else startGame('local', 'w');
-};
+
+function newGame() {
+  if (!over && !confirm('Começar nova partida?')) return;
+  if (mode === 'net') {
+    if (!conn || !conn.open) { $('#over').hidden = true; setStatus('O amigo não está mais conectado. Volte ao menu para criar outra sala.'); return; }
+    conn.send({t: 'new'});
+    startGame('net', opp(me), tc);
+  } else startGame('local', 'w', tc);
+}
+$('#btnNew').onclick = newGame;
+$('#btnOverNew').onclick = newGame;
+$('#btnOverClose').onclick = () => { $('#over').hidden = true; };
+for (const b of document.querySelectorAll('.menu-btn'))
+  b.onclick = () => { if (!over && !confirm('Voltar ao menu? A partida atual será perdida.')) return; location.reload(); };
+
+buildModes();
 }
