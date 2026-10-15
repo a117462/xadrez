@@ -159,6 +159,7 @@ let st, mode, me = 'w', sel = null, targets = [], last = null, over = false;
 let caps = {w: [], b: []}, history = [], peer = null, conn = null;
 let tc = null, clock = {w: 0, b: 0}, lastTick = 0, timer = null;
 let marks = [], drag = null;
+let dnd = null, ghost = null, raf = 0; // arrastar peças
 let chosen = MODES.find(m => m.min === 5 && m.inc === 0);
 let roomTc = null;
 
@@ -236,6 +237,7 @@ function outcome(winner) {
 function finish(title, detail, winner) {
   if (over) return;
   over = true; sel = null; targets = [];
+  cancelDrag();
   $('#promo').hidden = true;
   const out = outcome(winner);
   setStatus(`${title}. ${out}`);
@@ -264,10 +266,11 @@ function render() {
     if (i === chk) d.classList.add('chk');
     const t = targets.find(m => m.to === i);
     if (t) d.classList.add('mv', ...(p || t.ep ? ['cap'] : []));
-    if (p) d.innerHTML = `<span class="p ${p[0]}">${GL[p[1]]}\uFE0E</span>`;
+    d.dataset.i = i;
+    const lift = dnd && dnd.moved && i === dnd.from;
+    if (p) d.innerHTML = `<span class="p ${p[0]}${lift ? ' lift' : ''}">${GL[p[1]]}\uFE0E</span>`;
     if (dc === 0) d.insertAdjacentHTML('beforeend', `<span class="co r">${8 - r}</span>`);
     if (dr === 7) d.insertAdjacentHTML('beforeend', `<span class="co f">${'abcdefgh'[c]}</span>`);
-    d.onclick = () => click(i);
     board.appendChild(d);
   }
   const top = opp(me), names = mode === 'local' ? {w: 'Brancas', b: 'Pretas'}
@@ -329,6 +332,7 @@ function askPromo(ms) {
 
 function play(m, remote, clk) {
   if (over) return;
+  cancelDrag();
   const mover = st.turn;
   if (tc) {
     tick();
@@ -350,6 +354,7 @@ function play(m, remote, clk) {
 
 function startGame(m, color, newTc) {
   mode = m; me = color || 'w'; tc = newTc || null;
+  cancelDrag();
   st = newState(); sel = null; targets = []; last = null; marks = []; drag = null;
   over = false; caps = {w: [], b: []}; history = [];
   const t0 = tc ? tc.min * 60000 : 0;
@@ -373,13 +378,14 @@ function endByResign(loser) {
 const MARK_COLORS = {normal: '#ff9a1f', shift: '#e5484d', alt: '#3b82f6'};
 const colorOf = e => e.shiftKey ? MARK_COLORS.shift : (e.altKey || e.ctrlKey) ? MARK_COLORS.alt : MARK_COLORS.normal;
 
-function sqAt(e) {
+function sqAtXY(cx, cy) {
   const b = $('#board'), r = b.getBoundingClientRect(), w = b.clientWidth / 8;
-  const x = Math.floor((e.clientX - r.left - b.clientLeft) / w);
-  const y = Math.floor((e.clientY - r.top - b.clientTop) / w);
+  const x = Math.floor((cx - r.left - b.clientLeft) / w);
+  const y = Math.floor((cy - r.top - b.clientTop) / w);
   if (x < 0 || x > 7 || y < 0 || y > 7) return -1;
   return me === 'b' ? (7 - y) * 8 + (7 - x) : y * 8 + x;
 }
+const sqAt = e => sqAtXY(e.clientX, e.clientY);
 
 function toggleMark({from, to, color}) {
   const type = from === to ? 'circle' : 'arrow';
@@ -411,11 +417,101 @@ function drawMarks() {
   svg.innerHTML = h;
 }
 
+/* ===== ARRASTAR PEÇAS (com um balanço sutil, como se a peça tivesse peso) ===== */
+const REDUCE = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sqEl = i => $(`#board [data-i="${i}"]`);
+const placeGhost = () => {
+  ghost.style.transform = `translate(${dnd.x - dnd.size / 2}px,${dnd.y + dnd.oy - dnd.size / 2}px) rotate(${dnd.ang}deg) scale(1.1)`;
+};
+
+function startGhost(e) {
+  const size = $('#board').clientWidth / 8, p = st.board[dnd.from];
+  ghost = document.createElement('div');
+  ghost.className = 'ghost';
+  ghost.style.width = ghost.style.height = size + 'px';
+  ghost.style.fontSize = size * .78 + 'px';
+  ghost.innerHTML = `<span class="p ${p[0]}">${GL[p[1]]}\uFE0E</span>`;
+  document.body.appendChild(ghost);
+  Object.assign(dnd, {moved: true, size, x: e.clientX, px: e.clientX, y: e.clientY, ang: 0, av: 0, vx: 0,
+    hover: -1, t: performance.now(), oy: e.pointerType === 'touch' ? -size * .7 : 0});
+  render();        // esconde a peça na casa de origem
+  placeGhost();
+  raf = requestAnimationFrame(stepGhost);
+}
+
+/* mola amortecida: a peça se inclina para o lado em que é puxada e balança de volta */
+function stepGhost(now) {
+  if (!dnd || !ghost) return;
+  const dt = Math.min(.032, Math.max(.001, (now - dnd.t) / 1000));
+  dnd.t = now;
+  const vx = (dnd.x - dnd.px) / dt;
+  dnd.px = dnd.x;
+  dnd.vx += (vx - dnd.vx) * .25;
+  const target = REDUCE ? 0 : Math.max(-9, Math.min(9, dnd.vx / 90));   // no máximo ~9 graus
+  dnd.av += (-170 * (dnd.ang - target) - 13 * dnd.av) * dt;
+  dnd.ang += dnd.av * dt;
+  placeGhost();
+  raf = requestAnimationFrame(stepGhost);
+}
+
+function setHover(i) {
+  if (dnd.hover === i) return;
+  const old = sqEl(dnd.hover);
+  if (old) old.classList.remove('drop');
+  dnd.hover = i;
+  if (i >= 0 && targets.some(m => m.to === i)) sqEl(i).classList.add('drop');
+}
+
+function cancelDrag() {
+  cancelAnimationFrame(raf);
+  dnd = null;
+  if (ghost) { ghost.remove(); ghost = null; }
+}
+
+function snapBack(d) {   // solta em lugar inválido: a peça volta deslizando
+  const g = ghost; ghost = null;
+  render();
+  const el = sqEl(d.from);
+  if (!el) return g.remove();
+  const r = el.getBoundingClientRect();
+  g.style.transition = 'transform .14s ease-out';
+  g.style.transform = `translate(${r.left + r.width / 2 - d.size / 2}px,${r.top + r.height / 2 - d.size / 2}px)`;
+  setTimeout(() => g.remove(), 170);
+}
+
+function endDrag(e) {
+  const d = dnd;
+  cancelAnimationFrame(raf);
+  dnd = null;
+  if (!d.moved) return click(d.from);          // foi só um clique
+  const i = sqAtXY(e.clientX, e.clientY + d.oy);
+  const ms = i >= 0 ? targets.filter(m => m.to === i) : [];
+  if (!ms.length) return snapBack(d);
+  ghost.remove(); ghost = null;
+  if (ms[0].promo) { render(); askPromo(ms); } else play(ms[0]);
+}
+
+/* ===== PONTEIRO: peças (botão esquerdo) e setas (botão direito) ===== */
 const boardEl = $('#board');
 boardEl.addEventListener('contextmenu', e => e.preventDefault());
 boardEl.addEventListener('pointerdown', e => {
-  if (e.button === 0) { if (marks.length) { marks = []; drawMarks(); } return; }
-  if (e.button === 2) {
+  if (e.button === 0) {
+    if (marks.length) { marks = []; drawMarks(); }
+    if (dnd) return;
+    const i = sqAt(e);
+    if (i < 0) return;
+    dnd = {from: i, id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, click: true};
+    if (!over && !(mode === 'net' && st.turn !== me)) {
+      const p = st.board[i];
+      if (p && p[0] === st.turn) {     // pegou uma peça sua: seleciona e permite arrastar
+        dnd.click = false;
+        sel = i; targets = legalMoves(st).filter(m => m.from === i);
+        render();
+      }
+    }
+    try { boardEl.setPointerCapture(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  } else if (e.button === 2) {
     const s = sqAt(e);
     if (s < 0) return;
     drag = {from: s, to: s, color: colorOf(e)};
@@ -424,18 +520,31 @@ boardEl.addEventListener('pointerdown', e => {
   }
 });
 window.addEventListener('pointermove', e => {
+  if (dnd && e.pointerId === dnd.id) {
+    if (!dnd.moved) {
+      if (dnd.click || Math.hypot(e.clientX - dnd.sx, e.clientY - dnd.sy) < 4) return;
+      startGhost(e);
+    }
+    dnd.x = e.clientX; dnd.y = e.clientY;
+    setHover(sqAtXY(dnd.x, dnd.y + dnd.oy));
+    return;
+  }
   if (!drag) return;
   const s = sqAt(e);
   if (s !== -1 && s !== drag.to) { drag.to = s; drawMarks(); }
 });
 window.addEventListener('pointerup', e => {
+  if (dnd && e.button === 0 && e.pointerId === dnd.id) return endDrag(e);
   if (!drag || e.button !== 2) return;
   const d = drag; drag = null;
   const s = sqAt(e);
   if (s !== -1) { d.to = s; toggleMark(d); }
   drawMarks();
 });
-window.addEventListener('pointercancel', () => { if (drag) { drag = null; drawMarks(); } });
+window.addEventListener('pointercancel', e => {
+  if (dnd && e.pointerId === dnd.id) { cancelDrag(); render(); }
+  if (drag) { drag = null; drawMarks(); }
+});
 
 /* ===== REDE (PeerJS: conexão direta entre os dois PCs) ===== */
 function onData(d) {
