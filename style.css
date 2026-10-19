@@ -131,3 +131,7 @@ select{font:inherit;padding:10px;border-radius:4px;border:1px solid var(--muted)
 .an-sum tr.more td{padding:0;border:0;text-align:center}
 .an-sum tr.more .link{margin:0;padding:2px 12px;font-size:1.1rem}
 .an-sum tr.phase td{border-top:1px solid #3d362f}
+
+.c-book{background:#b79b72}
+.coach{font-size:1.05rem;margin:8px 0 4px;color:var(--ink)}
+.coach:empty{display:none}

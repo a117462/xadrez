@@ -369,6 +369,146 @@ function classifyLoss(loss, isBest) {
   return 'clown'; // gafe
 }
 
+/* ---- Livro de aberturas (compacto): posições de teoria comum. Um lance que leva a uma destas posições é "Book". ---- */
+const BOOK_LINES = [
+  // 1.e4 e5
+  'e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 c2c3 g8f6 d2d4 e5d4 c3d4 c5b4 b1c3 f6e4 e1g1 b4c3 d4d5 c3f6 f1e1 c6e7',
+  'e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 d2d3 g8f6 c2c3 d7d6 b2b4 c5b6 a2a4 a7a6 e1g1 e8g8',
+  'e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 b2b4 c5b4 c2c3 b4a5 d2d4 e5d4 e1g1 d4c3 d1b3 d8f6',
+  'e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 f3g5 d7d5 e4d5 c6a5 c4b5 c7c6 d5c6 b7c6 b5e2 h7h6 g5f3 e5e4 f3e5 f8d6',
+  'e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 d2d3 f8c5 b1c3 d7d6 c1g5 h7h6 g5h4 c6a5 c4b5 c7c6',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7 f1e1 b7b5 a4b3 d7d6 c2c3 e8g8 h2h3 c6a5 b3c2 c7c5 d2d4 d8c7',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f6e4 d2d4 b7b5 a4b3 d7d5 d4e5 c8e6',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 g8f6 e1g1 f6e4 d2d4 e4d6 b5c6 d7c6 d4e5 d6f5 d1d8 e8d8 b1c3 d8e8',
+  'e2e4 e7e5 g1f3 b8c6 f1b5 g8f6 e1g1 f8c5 f3e5 c6e5 d2d4 c5d6 d4e5 f6e4',
+  'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4 f3d4 g8f6 d4c6 b7c6 e4e5 d8e7 d1e2 f6d5 c2c4 c8a6',
+  'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4 f3d4 f8c5 c1e3 d8f6 c2c3 g8e7 f1c4 c6e5 c4e2 d7d6',
+  'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4 f3d4 f8c5 d4b3 c5b6 a2a4 a7a6 b1c3 g8f6 a4a5 b6a7',
+  'e2e4 e7e5 g1f3 g8f6 f3e5 d7d6 e5f3 f6e4 d2d4 d6d5 f1d3 f8e7 e1g1 b8c6 c2c4 c6b4 f1e1 c8g4',
+  'e2e4 e7e5 g1f3 d7d6 d2d4 g8f6 b1c3 b8d7 f1c4 f8e7 e1g1 e8g8 d1e2 c7c6 a2a4 d8c7',
+  'e2e4 e7e5 g1f3 b8c6 b1c3 g8f6 f1b5 f8b4 e1g1 e8g8 d2d3 d7d6 c1g5 b4c3 b2c3 d8e7 f1e1 c6d8 d3d4 d8e6',
+  'e2e4 e7e5 g1f3 b8c6 b1c3 g8f6 d2d4 e5d4 f3d4 f8b4 d4c6 b7c6 f1d3 d7d5 e4d5 c6d5 e1g1 e8g8',
+  'e2e4 e7e5 b1c3 g8f6 f1c4 f6e4 d1h5 e4d6 c4b3 f8e7 h5e5 e8g8',
+  'e2e4 e7e5 b1c3 b8c6 g2g3 g8f6 f1g2 f8c5 g1e2 d7d6 e1g1 e8g8 d2d3 c8e6',
+  'e2e4 e7e5 f2f4 e5f4 g1f3 g7g5 h2h4 g5g4 f3e5 g8f6 d2d4 d7d6 e5d3 f6e4 f1e2 f8g7',
+  'e2e4 e7e5 f2f4 d7d5 e4d5 e5e4 d2d3 g8f6 b1c3 f6d5 d3e4 d5c3 d1d8 e8d8',
+  // 1.e4 c5
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 a7a6 c1g5 e7e6 f2f4 f8e7 d1f3 d8c7 e1c1 b8d7 g2g4 b7b5',
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 a7a6 f1e2 e7e5 d4b3 f8e7 e1g1 e8g8 c1e3 c8e6',
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 a7a6 c1e3 e7e5 d4b3 c8e6 f2f3 f8e7 d1d2 e8g8 e1c1 b8d7',
+  'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4 g8f6 b1c3 g7g6 c1e3 f8g7 f2f3 e8g8 d1d2 b8c6 f1c4 c8d7 e1c1 a8c8',
+  'e2e4 c7c5 g1f3 d7d6 f1b5 c8d7 b5d7 d8d7 e1g1 b8c6 f1e1 g8f6 c2c3 g7g6 d2d4 c5d4 c3d4 f8g7',
+  'e2e4 c7c5 g1f3 b8c6 d2d4 c5d4 f3d4 g8f6 b1c3 e7e5 d4b5 d7d6 c1g5 a7a6 b5a3 b7b5 g5f6 g7f6 c3d5 f6f5',
+  'e2e4 c7c5 g1f3 b8c6 d2d4 c5d4 f3d4 g8f6 b1c3 d7d6 c1g5 e7e6 d1d2 a7a6 e1c1 c8d7 f2f4 f8e7',
+  'e2e4 c7c5 g1f3 b8c6 d2d4 c5d4 f3d4 d8c7 b1c3 e7e6 c1e3 a7a6 f1e2 g8f6 e1g1 f8e7',
+  'e2e4 c7c5 g1f3 b8c6 f1b5 g7g6 e1g1 f8g7 f1e1 e7e5 b5c6 d7c6 d2d3 g8e7 b1d2 e8g8',
+  'e2e4 c7c5 g1f3 e7e6 d2d4 c5d4 f3d4 a7a6 f1d3 g8f6 e1g1 d8c7 c2c4 f8c5 d4b3 c5a7 b1c3 b8c6',
+  'e2e4 c7c5 g1f3 e7e6 d2d4 c5d4 f3d4 b8c6 b1c3 d8c7 c1e3 a7a6 f1e2 g8f6 e1g1 f8e7 f2f4 d7d6',
+  'e2e4 c7c5 g1f3 e7e6 d2d4 c5d4 f3d4 g8f6 b1c3 d7d6 f1e2 f8e7 e1g1 e8g8 c1e3 a7a6 f2f4 d8c7',
+  'e2e4 c7c5 c2c3 g8f6 e4e5 f6d5 d2d4 c5d4 g1f3 b8c6 f3d4 d7d6 f1c4 d5b6 c4b3 d6e5 d4c6 b7c6',
+  'e2e4 c7c5 c2c3 d7d5 e4d5 d8d5 d2d4 g8f6 g1f3 c8g4 f1e2 e7e6 e1g1 b8c6 c3c4 d5d6',
+  'e2e4 c7c5 b1c3 b8c6 g2g3 g7g6 f1g2 f8g7 d2d3 d7d6 c1e3 e7e6 d1d2 g8e7 g1f3 e8g8',
+  'e2e4 c7c5 g1f3 g8f6 e4e5 f6d5 b1c3 e7e6 c3d5 e6d5 d2d4 b8c6',
+  // francesa, Caro-Kann, escandinava, Pirc, Alekhine
+  'e2e4 e7e6 d2d4 d7d5 b1c3 g8f6 c1g5 f8e7 e4e5 f6d7 g5e7 d8e7 f2f4 e8g8 g1f3 c7c5 d4c5 b8c6',
+  'e2e4 e7e6 d2d4 d7d5 b1c3 f8b4 e4e5 c7c5 a2a3 b4c3 b2c3 g8e7 d1g4 e8g8 f1d3 b8c6 g1f3 d8c7',
+  'e2e4 e7e6 d2d4 d7d5 b1d2 g8f6 e4e5 f6d7 f1d3 c7c5 c2c3 b8c6 g1e2 c5d4 c3d4 f7f6 e5f6 d8f6',
+  'e2e4 e7e6 d2d4 d7d5 b1d2 c7c5 e4d5 e6d5 g1f3 b8c6 f1b5 f8d6 d4c5 d6c5 e1g1 g8e7 d2b3 c5d6',
+  'e2e4 e7e6 d2d4 d7d5 e4e5 c7c5 c2c3 b8c6 g1f3 d8b6 a2a3 c5c4 b2b4 c4b3 a3a4 c8d7',
+  'e2e4 e7e6 d2d4 d7d5 e4d5 e6d5 g1f3 g8f6 f1d3 f8d6 e1g1 e8g8 c1g5 c8g4 b1d2 b8d7',
+  'e2e4 c7c6 d2d4 d7d5 b1c3 d5e4 c3e4 c8f5 e4g3 f5g6 h2h4 h7h6 g1f3 b8d7 h4h5 g6h7 f1d3 h7d3 d1d3 e7e6 c1f4 d8a5',
+  'e2e4 c7c6 d2d4 d7d5 b1c3 d5e4 c3e4 b8d7 g1f3 g8f6 e4g5 e7e6 f1d3 f8d6 d1e2 h7h6 g5e4 d8c7',
+  'e2e4 c7c6 d2d4 d7d5 e4e5 c8f5 g1f3 e7e6 f1e2 c6c5 e1g1 b8c6 c2c3 g8e7 b1a3 c5d4 c3d4 f5g6',
+  'e2e4 c7c6 d2d4 d7d5 e4e5 c8f5 b1c3 e7e6 g2g4 f5g6 g1e2 g8e7 h2h4 h7h6 e2f4 g6h7',
+  'e2e4 c7c6 d2d4 d7d5 e4d5 c6d5 c2c4 g8f6 b1c3 e7e6 g1f3 f8e7 c4d5 f6d5 f1d3 b8c6 e1g1 e8g8',
+  'e2e4 c7c6 d2d4 d7d5 e4d5 c6d5 f1d3 b8c6 c2c3 g8f6 c1f4 c8g4 d1b3 d8d7 b1d2 e7e6',
+  'e2e4 c7c6 b1c3 d7d5 g1f3 d5e4 c3e4 c8f5 e4g3 f5g6 h2h4 h7h6 f1c4 e7e6 d2d3 g8f6',
+  'e2e4 d7d5 e4d5 d8d5 b1c3 d5a5 d2d4 g8f6 g1f3 c7c6 f1c4 c8f5 c1d2 e7e6 d4d5 c6d5',
+  'e2e4 d7d5 e4d5 g8f6 d2d4 f6d5 g1f3 g7g6 f1e2 f8g7 e1g1 e8g8 c2c4 d5b6 b1c3 b8c6',
+  'e2e4 d7d6 d2d4 g8f6 b1c3 g7g6 g1f3 f8g7 f1e2 e8g8 e1g1 c7c6 a2a4 b8d7 c1f4 d8c7',
+  'e2e4 d7d6 d2d4 g8f6 b1c3 g7g6 f2f4 f8g7 g1f3 c7c5 f1b5 c8d7 e4e5 f6g4 e1g1 b8c6',
+  'e2e4 g7g6 d2d4 f8g7 b1c3 d7d6 g1f3 g8f6 f1e2 e8g8 e1g1 c7c6 a2a4 b8d7 c1f4',
+  'e2e4 g8f6 e4e5 f6d5 d2d4 d7d6 g1f3 c8g4 f1e2 e7e6 e1g1 f8e7 c2c4 d5b6 b1c3 e8g8 h2h3 g4h5',
+  'e2e4 g8f6 e4e5 f6d5 d2d4 d7d6 c2c4 d5b6 f2f4 d6e5 f4e5 c8f5 b1c3 e7e6 g1f3 b8c6',
+  // 1.d4 d5
+  'd2d4 d7d5 c2c4 e7e6 b1c3 g8f6 c1g5 f8e7 e2e3 e8g8 g1f3 b8d7 a1c1 c7c6 f1d3 d5c4 d3c4 f6d5',
+  'd2d4 d7d5 c2c4 e7e6 b1c3 g8f6 g1f3 f8e7 c1f4 e8g8 e2e3 c7c5 d4c5 e7c5 a2a3 b8c6 d1c2 d8a5',
+  'd2d4 d7d5 c2c4 e7e6 b1c3 c7c6 g1f3 g8f6 e2e3 b8d7 f1d3 d5c4 d3c4 b7b5 c4d3 a7a6 e3e4 c6c5',
+  'd2d4 d7d5 c2c4 e7e6 g1f3 g8f6 b1c3 f8b4 c1g5 h7h6 g5h4 c7c5 e2e3 c5d4 e3d4 b8c6',
+  'd2d4 d7d5 c2c4 c7c6 g1f3 g8f6 b1c3 d5c4 a2a4 c8f5 e2e3 e7e6 f1c4 f8b4 e1g1 b8d7 d1e2 f5g6',
+  'd2d4 d7d5 c2c4 c7c6 g1f3 g8f6 b1c3 e7e6 e2e3 b8d7 f1d3 d5c4 d3c4 b7b5 c4d3 a7a6 e3e4 c6c5 e4e5 c5d4',
+  'd2d4 d7d5 c2c4 c7c6 g1f3 g8f6 e2e3 e7e6 b1d2 b8d7 f1d3 f8d6 e1g1 e8g8 e3e4 d5e4 d2e4 f6e4',
+  'd2d4 d7d5 c2c4 d5c4 g1f3 g8f6 e2e3 e7e6 f1c4 c7c5 e1g1 a7a6 d1e2 b7b5 c4b3 c5d4 f1d1 b8c6 e3d4 c8b7',
+  'd2d4 d7d5 c2c4 d5c4 e2e3 g8f6 f1c4 e7e6 g1f3 c7c5 e1g1 a7a6 d1e2 b7b5 c4b3 c8b7',
+  'd2d4 d7d5 c2c4 e7e5 d4e5 d5d4 g1f3 b8c6 g2g3 c8e6 f1g2 d8d7 e1g1 f8e7',
+  'd2d4 d7d5 c1f4 g8f6 e2e3 c7c5 c2c3 b8c6 b1d2 e7e6 g1f3 f8d6 f4g3 e8g8 f1d3 d8e7 e1g1 f6h5',
+  'd2d4 d7d5 c1f4 g8f6 e2e3 e7e6 g1f3 f8d6 f4g3 e8g8 b1d2 b8d7 f1d3 c7c5 c2c3 d6e7',
+  'd2d4 d7d5 g1f3 g8f6 e2e3 e7e6 f1d3 c7c5 b2b3 b8c6 e1g1 f8d6 c1b2 e8g8 b1d2 b7b6',
+  'd2d4 d7d5 g1f3 g8f6 c1f4 e7e6 e2e3 f8d6 f4g3 e8g8 f1d3 c7c5 c2c3 b8c6 b1d2 d8e7',
+  'd2d4 d7d5 g1f3 g8f6 c2c4 e7e6 b1c3 f8e7 c1g5 e8g8 e2e3 h7h6 g5h4 b7b6 c4d5 e6d5',
+  'd2d4 d7d5 g1f3 g8f6 c2c4 e7e6 g2g3 f8e7 f1g2 e8g8 e1g1 d5c4 d1c2 a7a6 c2c4 b7b5 c4c2 c8b7',
+  'd2d4 d7d5 g1f3 g8f6 c2c4 c7c6 e2e3 e7e6 b1d2 b8d7 f1d3 f8d6 e1g1 e8g8 e3e4 d5e4 d2e4 f6e4',
+  // 1.d4 Nf6 e indianas
+  'd2d4 g8f6 c2c4 g7g6 b1c3 f8g7 e2e4 d7d6 g1f3 e8g8 f1e2 e7e5 e1g1 b8c6 d4d5 c6e7 f3e1 f6d7 c1e3 f7f5',
+  'd2d4 g8f6 c2c4 g7g6 b1c3 f8g7 e2e4 d7d6 f2f3 e8g8 c1e3 e7e5 g1e2 c7c6 d1d2 b8d7',
+  'd2d4 g8f6 c2c4 g7g6 b1c3 d7d5 c4d5 f6d5 e2e4 d5c3 b2c3 f8g7 g1f3 c7c5 f1e2 e8g8 e1g1 b8c6 c1e3 c5d4',
+  'd2d4 g8f6 c2c4 g7g6 b1c3 d7d5 g1f3 f8g7 d1b3 d5c4 b3c4 e8g8 e2e4 c8g4 c1e3 f6d7',
+  'd2d4 g8f6 c2c4 e7e6 b1c3 f8b4 e2e3 e8g8 f1d3 d7d5 g1f3 c7c5 e1g1 b8c6 a2a3 b4c3 b2c3 d5c4 d3c4 d8c7',
+  'd2d4 g8f6 c2c4 e7e6 b1c3 f8b4 d1c2 e8g8 a2a3 b4c3 c2c3 b7b6 c1g5 c8b7 e2e3 d7d6 f2f3 b8d7',
+  'd2d4 g8f6 c2c4 e7e6 b1c3 f8b4 e2e3 c7c5 f1d3 b8c6 g1f3 b4c3 b2c3 d7d6 e3e4 e6e5 e1g1 e8g8',
+  'd2d4 g8f6 c2c4 e7e6 g1f3 b7b6 g2g3 c8b7 f1g2 f8e7 e1g1 e8g8 b1c3 f6e4 d1c2 e4c3 c2c3 c7c5',
+  'd2d4 g8f6 c2c4 e7e6 g1f3 b7b6 a2a3 c8b7 b1c3 d7d5 c4d5 f6d5 d1c2 d5c3 b2c3 f8e7',
+  'd2d4 g8f6 c2c4 e7e6 g2g3 d7d5 f1g2 f8e7 g1f3 e8g8 e1g1 d5c4 d1c2 a7a6 c2c4 b7b5 c4c2 c8b7 b1c3 b8d7',
+  'd2d4 g8f6 c2c4 e7e6 g2g3 d7d5 f1g2 d5c4 g1f3 f8e7 e1g1 e8g8 d1c2 a7a6 c2c4 b7b5',
+  'd2d4 g8f6 c2c4 c7c5 d4d5 e7e6 b1c3 e6d5 c4d5 d7d6 e2e4 g7g6 g1f3 f8g7 f1e2 e8g8 e1g1 f8e8',
+  'd2d4 g8f6 g1f3 e7e6 c1g5 h7h6 g5h4 d7d5 e2e3 f8e7 b1d2 e8g8 f1d3 b8d7 c2c3 c7c5',
+  'd2d4 g8f6 g1f3 g7g6 c1f4 f8g7 e2e3 e8g8 h2h3 d7d6 f1e2 b8d7 e1g1 c7c5 c2c3 d8c7',
+  'd2d4 g8f6 c2c4 e7e6 g1f3 d7d5 b1c3 f8e7 c1g5 h7h6 g5h4 e8g8 e2e3 f6e4 h4e7 d8e7',
+  'd2d4 f7f5 g2g3 g8f6 f1g2 e7e6 g1f3 f8e7 e1g1 e8g8 c2c4 d7d6 b1c3 d8e8 d1c2 e8h5',
+  'd2d4 f7f5 c2c4 g8f6 g2g3 e7e6 f1g2 f8e7 g1f3 e8g8 e1g1 d7d6 b1c3 d8e8 d1c2 e8h5',
+  'd2d4 d7d6 e2e4 g8f6 b1c3 g7g6 g1f3 f8g7 f1e2 e8g8 e1g1 c7c6 c1g5 b8d7',
+  // inglesa, Réti, outras
+  'c2c4 e7e5 b1c3 g8f6 g1f3 b8c6 g2g3 d7d5 c4d5 f6d5 f1g2 d5b6 e1g1 f8e7 d2d3 e8g8 a2a3 f7f5',
+  'c2c4 e7e5 b1c3 g8f6 g1f3 b8c6 e2e3 f8b4 d1c2 b4c3 b2c3 e8g8 f1d3 d7d6 e3e4',
+  'c2c4 e7e5 g2g3 g8f6 f1g2 d7d5 c4d5 f6d5 b1c3 d5b6 g1f3 b8c6 e1g1 f8e7 d2d3 e8g8',
+  'c2c4 g8f6 b1c3 e7e6 g1f3 d7d5 d2d4 f8e7 c1g5 e8g8 e2e3 h7h6 g5h4 b7b6 c4d5 e6d5',
+  'c2c4 g8f6 b1c3 g7g6 g2g3 f8g7 f1g2 e8g8 e2e4 d7d6 g1e2 e7e5 e1g1 c7c6 d2d3 b8d7',
+  'c2c4 c7c5 g1f3 g8f6 b1c3 b8c6 g2g3 g7g6 f1g2 f8g7 e1g1 e8g8 d2d4 c5d4 f3d4 c6d4 d1d4 d7d6',
+  'c2c4 c7c5 g1f3 g8f6 b1c3 e7e6 g2g3 b7b6 f1g2 c8b7 e1g1 f8e7 d2d4 c5d4 d1d4 d7d6',
+  'c2c4 e7e6 g1f3 d7d5 g2g3 g8f6 f1g2 f8e7 e1g1 e8g8 d2d4 d5c4 d1c2 a7a6 c2c4 b7b5',
+  'g1f3 d7d5 c2c4 e7e6 g2g3 g8f6 f1g2 f8e7 e1g1 e8g8 b2b3 c7c5 c1b2 b8c6 e2e3 b7b6',
+  'g1f3 d7d5 g2g3 g8f6 f1g2 c7c6 e1g1 c8g4 d2d3 b8d7 b1d2 e7e6 h2h3 g4h5 e2e4 f8e7',
+  'g1f3 g8f6 c2c4 g7g6 b1c3 f8g7 e2e4 d7d6 d2d4 e8g8 f1e2 e7e5 e1g1 b8c6 d4d5 c6e7',
+  'g1f3 g8f6 g2g3 g7g6 f1g2 f8g7 e1g1 e8g8 d2d4 d7d6 c2c4 b8c6 b1c3 a7a6 h2h3 c8d7',
+  'g1f3 g8f6 c2c4 e7e6 b1c3 d7d5 d2d4 f8e7 c1g5 e8g8 e2e3 h7h6 g5h4 b8d7',
+  'g1f3 c7c5 c2c4 b8c6 b1c3 g8f6 g2g3 d7d5 c4d5 f6d5 f1g2 d5c3 b2c3 g7g6 e1g1 f8g7',
+  'g1f3 f7f5 g2g3 g8f6 f1g2 e7e6 e1g1 f8e7 d2d3 e8g8 b1c3 d7d6 e2e4 f5e4',
+  'b2b3 e7e5 c1b2 b8c6 e2e3 d7d5 f1b5 f8d6 f2f4 d8h4 g2g3 h4e7 g1f3 c8g4',
+  'f2f4 d7d5 g1f3 g8f6 e2e3 g7g6 f1e2 f8g7 e1g1 e8g8 d2d3 c7c5 b2b3 b8c6',
+  'b2b4 e7e5 c1b2 f8b4 b2e5 g8f6 g1f3 b8c6 e5b2 e8g8 e2e3 d7d5 f1b5 f6e4',
+  'e2e3 e7e5 c2c4 d7d6 b1c3 g8f6 b2b3 f8e7 c1b2 e8g8 g1f3 b8d7 f1e2 c7c6',
+  'g2g3 d7d5 f1g2 e7e5 d2d3 g8f6 g1f3 b8c6 e1g1 f8e7 e2e4 d5e4 d3e4 e8g8',
+];
+let _bookSet = null;
+const bookKey = (st) => st.board.map((p) => p || '.').join('') + st.turn;
+function bookSet() {
+  if (_bookSet) return _bookSet;
+  _bookSet = new Set();
+  for (const line of BOOK_LINES) {
+    let st = newState();
+    for (const u of line.split(' ')) {
+      const m = legalMoves(st).find(
+        (x) => sqName(x.from) + sqName(x.to) + (x.promo ? x.promo.toLowerCase() : '') === u
+      );
+      if (!m) break; // linha com erro de digitação: ignora o resto
+      st = apply(st, m);
+      _bookSet.add(bookKey(st));
+    }
+  }
+  return _bookSet;
+}
+const isBookPos = (st) => bookSet().has(bookKey(st));
+
 /* ---- Sacrifício (para o "Sigma"/Brilliant): troca estática (SEE) na casa de destino ---- */
 const SEE_VAL = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 100 };
 const SEE_KN = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
@@ -439,7 +579,8 @@ const pieceCount = (b) => b.filter((p) => p && 'QRBN'.includes(p[1])).length;
 // Classes: sigma (Brilliant), awesome (Great), best, excellent, good, strange (imprecisão), bad (erro), miss, clown (gafe).
 //  - Sigma: sacrifício de peça (>= 2 peões), que é o melhor/quase melhor lance, que não deixa a posição má
 //    e que não ganhava de qualquer jeito (o 2º melhor lance não ganha tudo). No final de jogo tem de ser quase o único bom lance.
-//  - Awesome: lance quase único (o 2º melhor perde >= 15% de chance de vitória), que não é uma recaptura óbvia.
+//  - Awesome: lance que muda o rumo da partida: quase único (o 2º melhor perde >= 15%) ou que salva/ganha a posição; não vale recaptura óbvia.
+//  - Book: posição de teoria de abertura (lista compacta acima); não conta como erro.
 //  - Miss: o adversário errou no lance anterior e você não aproveitou.
 function rateMoves(positions, mvs, evals, shallow) {
   const ev = shallow || evals,
@@ -450,8 +591,9 @@ function rateMoves(positions, mvs, evals, shallow) {
       forced = same || e.n <= 1;
     const bestW = winPct(clampCp(e.score)),
       playedW = winPct(clampCp(-ev[k + 1].score));
-    let loss = forced ? 0 : Math.max(0, bestW - playedW);
-    let cls = classifyLoss(loss, forced);
+    const book = k < 30 && isBookPos(positions[k + 1]);
+    let loss = forced || book ? 0 : Math.max(0, bestW - playedW);
+    let cls = book ? 'book' : classifyLoss(loss, forced);
     const prevLoss = k > 0 ? out[k - 1].loss : 0;
     if ((cls === 'strange' || cls === 'bad') && prevLoss >= 10) cls = 'miss';
     if ((cls === 'best' || cls === 'excellent') && e.n > 1 && e.score2 != null) {
@@ -460,11 +602,50 @@ function rateMoves(positions, mvs, evals, shallow) {
         endgame = pieceCount(positions[k].board) <= 6,
         recapture = k > 0 && mvs[k - 1].to === m.to && positions[k].board[m.to];
       if (sacrificeValue(positions[k], m) >= 2 && playedW >= 40 && s2 < 85 && (!endgame || gap >= 15)) cls = 'sigma';
-      else if (gap >= 15 && bestW < 92 && !recapture) cls = 'awesome';
+      else if (
+        !recapture &&
+        bestW < 92 &&
+        (gap >= 15 || (gap >= 8 && ((s2 < 40 && bestW >= 40) || (s2 < 60 && bestW >= 65))))
+      )
+        cls = 'awesome'; // só lance bom, ou lance que salva (perdendo->equilibrado) / vence (equilibrado->ganhando)
     }
     out.push({ loss, cls, acc: accuracyOf(loss), mover: positions[k].turn });
   });
   return out;
+}
+
+// Resumo de uma linha da partida (o "Coach")
+function coachLine(rates, evals, positions) {
+  if (!rates.length) return '';
+  const wp = evals.map((e, i) => winPct(clampCp(positions[i].turn === 'w' ? e.score : -e.score)));
+  const side = (c) => (c === 'w' ? 'as Brancas' : 'as Pretas'),
+    Side = (c) => (c === 'w' ? 'As Brancas' : 'As Pretas');
+  let bk = -1,
+    bl = 0;
+  rates.forEach((r, k) => {
+    if (r.loss > bl) {
+      bl = r.loss;
+      bk = k;
+    }
+  });
+  const fin = wp[wp.length - 1],
+    lead = fin > 65 ? 'w' : fin < 35 ? 'b' : null;
+  if (bl < 10) {
+    if (!lead) return 'Partida equilibrada: nenhum dos lados cometeu erros graves.';
+    return `${Side(lead)} foram acumulando vantagem aos poucos, sem erros graves de ninguém.`;
+  }
+  const n = Math.floor(bk / 2) + 1,
+    who = rates[bk].mover,
+    other = who === 'w' ? 'b' : 'w',
+    err = bl >= 20 ? 'uma gafe' : 'um erro',
+    before = who === 'w' ? wp[bk] : 100 - wp[bk]; // chance de quem errou antes do erro
+  let t;
+  if (before >= 62) t = `${Side(who)} estavam melhor, mas no lance ${n} cometeram ${err} e a vantagem desapareceu.`;
+  else if (before > 38) t = `Partida equilibrada até o lance ${n}, quando ${side(who)} cometeram ${err}.`;
+  else t = `${Side(who)} já estavam pior e no lance ${n} cometeram ${err}, piorando a situação.`;
+  if (lead === other) t += ` ${Side(other)} passaram a dominar.`;
+  else if (lead === who) t += ` Mesmo assim, ${side(who)} conseguiram vencer.`;
+  return t;
 }
 
 //END
@@ -480,6 +661,9 @@ if (typeof document === 'undefined') {
     rateMoves,
     sacrificeValue,
     classifyLoss,
+    isBookPos,
+    bookSet,
+    coachLine,
     evaluate,
     MATE,
   };
@@ -1328,6 +1512,7 @@ if (typeof document === 'undefined') {
     sigma: { label: 'Sigma', sym: '!!', color: '#26c9a8', note: 'Sacrifício brilhante: não era óbvio e ainda assim era dos melhores lances.' },
     awesome: { label: 'Awesome', sym: '!', color: '#7aa7d6', note: 'Lance quase único: as alternativas eram bem piores.' },
     best: { label: 'Best', sym: '★', color: '#7bd88f' },
+    book: { label: 'Livro', sym: '📖', color: '#b79b72', note: 'Lance de teoria de abertura.' },
     excellent: { label: 'Excelente', sym: '✓', color: '#5fc2a3' },
     good: { label: 'Bom', sym: '•', color: '#a9b6c4' },
     strange: { label: 'Strange', sym: '?!', color: '#f2c14e' },
@@ -1335,7 +1520,7 @@ if (typeof document === 'undefined') {
     miss: { label: 'Miss', sym: '✕', color: '#e5484d', note: 'O adversário errou no lance anterior e você não aproveitou.' },
     clown: { label: 'Clown', sym: '??', color: '#a31d24' },
   };
-  const MAIN = ['sigma', 'awesome', 'best', 'strange', 'bad', 'miss', 'clown'],
+  const MAIN = ['sigma', 'awesome', 'best', 'book', 'strange', 'bad', 'miss', 'clown'],
     EXTRA = ['excellent', 'good'];
   const nameOf = (c) => Side(c) + ((mode === 'net' || mode === 'cpu') && c === me ? ' (você)' : '');
 
@@ -1480,6 +1665,7 @@ if (typeof document === 'undefined') {
       h += `<tr class="phase"><td>${name}</td><td>${c('w')}</td><td>${c('b')}</td></tr>`;
     });
     $('#anSummary').innerHTML = h + '</table>';
+    $('#anCoach').textContent = coachLine(rates, an.evals, positions);
     drawGraph();
     const cell = (k) =>
       `<td><button type="button" class="mv-btn" data-k="${k + 1}">${moves[k].txt}${badge(rates[k].cls)}</button></td>`;
@@ -1519,7 +1705,7 @@ if (typeof document === 'undefined') {
       e = an.evals[k],
       mm = moves[k];
     let t = `Lance ${Math.floor(k / 2) + 1}${mm.mover === 'b' ? '…' : '.'} ${mm.txt}: ${CLS[r.cls].label} (${CLS[r.cls].sym}).`;
-    if (!['best', 'sigma', 'awesome'].includes(r.cls) && e.move) t += ` O motor preferia ${moveText(positions[k], e.move)}.`;
+    if (!['best', 'book', 'sigma', 'awesome'].includes(r.cls) && e.move) t += ` O motor preferia ${moveText(positions[k], e.move)}.`;
     t += ` Avaliação (brancas): ${fmtEval(e.score, positions[k].turn)} → ${fmtEval(an.evals[k + 1].score, positions[k + 1].turn)}.`;
     if (CLS[r.cls].note) t += ' ' + CLS[r.cls].note;
     $('#anDetail').textContent = t;
