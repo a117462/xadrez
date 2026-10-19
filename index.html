@@ -25,6 +25,19 @@
         <button id="btnJoin">Entrar</button>
       </div>
       <hr>
+      <h2>Jogar contra o Stockfish</h2>
+      <label class="elo-label" for="eloRange">Elo do Stockfish: <b id="eloOut">1500</b></label>
+      <input type="range" id="eloRange" min="800" max="3000" step="50" value="1500">
+      <div class="row">
+        <select id="cpuColor" aria-label="Cor">
+          <option value="w">Jogar de brancas</option>
+          <option value="b">Jogar de pretas</option>
+          <option value="r">Cor aleatória</option>
+        </select>
+        <button id="btnCpu">Jogar contra o computador</button>
+      </div>
+      <p id="cpuMsg" class="info small"></p>
+      <hr>
       <button id="btnLocal" class="ghost">Jogar no mesmo computador</button>
       <p id="lobbyMsg" class="info"></p>
     </div>
@@ -32,6 +45,10 @@
 
   <section id="game" hidden>
     <p id="modeTag"></p>
+    <div id="cpuBar" hidden>
+      <label class="elo-label" for="eloRange2">Elo do Stockfish: <b id="eloOut2">1500</b></label>
+      <input type="range" id="eloRange2" min="800" max="3000" step="50" value="1500">
+    </div>
     <div class="player" id="topPlayer">
       <div class="who"><span class="name"></span> <span class="caps"></span></div>
       <span class="clock"></span>
@@ -60,28 +77,19 @@
 
     <section id="analysis" hidden>
       <h2>Análise da partida</h2>
-      <div id="anaProgress">
-        <p id="anaMsg" class="info small"></p>
-        <div class="bar"><div id="anaBar"></div></div>
-        <span id="anaPct">0%</span>
+      <div id="anProgress">
+        <p id="anText" class="info small"></p>
+        <div class="bar"><div id="anBar"></div></div>
       </div>
-      <div id="anaBody" hidden>
-        <p id="anaEngine" class="info small"></p>
-        <div id="anaSummary"></div>
-        <svg id="anaGraph" viewBox="0 0 300 90" preserveAspectRatio="none" aria-label="Gráfico de vantagem"></svg>
-        <p class="info small">Parte clara: vantagem das brancas. Clique no gráfico para ir a um lance.</p>
-        <div class="row navrow">
-          <button id="btnFirst" class="ghost" aria-label="Primeiro lance">«</button>
-          <button id="btnPrev" class="ghost" aria-label="Lance anterior">‹</button>
-          <button id="btnNext" class="ghost" aria-label="Próximo lance">›</button>
-          <button id="btnLast" class="ghost" aria-label="Último lance">»</button>
+      <div id="anResult" hidden>
+        <div id="anSummary"></div>
+        <div class="row nav">
+          <button id="anPrev" class="ghost" aria-label="Lance anterior">‹</button>
+          <button id="anNext" class="ghost" aria-label="Próximo lance">›</button>
         </div>
-        <div id="anaInfo"></div>
-        <div class="row">
-          <button id="btnAlt" class="ghost" hidden>Mostrar melhor lance</button>
-          <button id="btnCloseAna" class="ghost">Fechar análise</button>
-        </div>
-        <div id="anaMoves"></div>
+        <div id="anDetail"></div>
+        <div class="an-scroll"><table class="an-moves"><tbody id="anMoves"></tbody></table></div>
+        <button id="btnAnClose" class="ghost">Fechar análise</button>
       </div>
     </section>
   </section>
