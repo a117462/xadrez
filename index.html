@@ -67,29 +67,42 @@
       <span class="clock"></span>
     </div>
     <p id="status"></p>
-    <div class="row">
+
+    <div class="row hud-main">
       <button id="btnResign" class="ghost">Desistir</button>
       <button id="btnNew" class="ghost">Nova partida</button>
+      <button id="btnAnalyze" class="ghost" hidden>Analisar</button>
       <button class="ghost menu-btn">Menu</button>
+      <button id="btnSettings" class="ghost" aria-expanded="false">⚙ Ajustes</button>
     </div>
-    <div class="row">
-      <button id="btnPre" class="ghost toggle" hidden>Pré-moves: OFF</button>
+
+    <div id="settingsPanel" class="settings" hidden>
+      <button id="btnFlip" class="ghost">⟳ Girar tabuleiro</button>
+      <button id="btnSound" class="ghost">🔊 Som: ON</button>
+      <button id="btnCoords" class="ghost">Coordenadas: ON</button>
+      <button id="btnPre" class="ghost" hidden>Pré-moves: OFF</button>
       <button id="btnPreClear" class="ghost" hidden>Limpar pré-moves</button>
-      <button id="btnAnalyze" class="ghost" hidden>Analisar partida</button>
+      <button id="btnPGNCopy" class="ghost">📋 Copiar PGN</button>
+      <button id="btnPGNDl" class="ghost">⬇ Baixar PGN</button>
     </div>
-    <div class="row" id="viewRow">
-      <button id="btnFlip" class="ghost" title="Girar o tabuleiro (visual)">⟳ Girar</button>
-      <button id="btnSound" class="ghost" title="Ligar/desligar sons">🔊 Som: ON</button>
-      <button id="btnCoords" class="ghost" title="Mostrar/ocultar coordenadas">Coordenadas: ON</button>
-    </div>
+
     <div class="row" id="revRow" hidden>
       <button id="btnRevPrev" class="ghost" aria-label="Lance anterior">‹ Anterior</button>
       <button id="btnRevLive" class="ghost">● Posição atual</button>
       <button id="btnRevNext" class="ghost" aria-label="Próximo lance">Próximo ›</button>
     </div>
-    <p class="info small hint">Clique direito (ou arraste) no tabuleiro para marcar casas e setas. Shift = vermelho, Alt/Ctrl = azul. Clique esquerdo apaga. Com os pré-moves ligados, você agenda lances na vez do amigo (Esc cancela). Depois da partida, clique nos lances ou use ← → para revisitar.</p>
-    <ol id="moves"></ol>
 
+    <details class="help">
+      <summary>Ajuda e atalhos</summary>
+      <ul>
+        <li>Clique ou arraste para mover. Clique direito arrastado: setas e círculos (Shift = vermelho, Alt/Ctrl = azul).</li>
+        <li>Pré-moves (online e contra o Stockfish): programe lances na vez do adversário; Esc cancela.</li>
+        <li>Após a partida, clique nos lances ou use ← → para revisitar.</li>
+        <li>Use ⚙ Ajustes para som, coordenadas, girar o tabuleiro e copiar/baixar o PGN.</li>
+      </ul>
+    </details>
+
+    <ol id="moves"></ol>
     </div>
 
     <section id="analysis" hidden>
@@ -126,7 +139,9 @@
     <p id="overOutcome" class="outcome"></p>
     <div class="row">
       <button id="btnOverNew">Nova partida</button>
-      <button id="btnOverAnalyze" class="ghost" hidden>Analisar partida</button>
+      <button id="btnOverAnalyze" class="ghost" hidden>Analisar</button>
+      <button id="btnOverPGN" class="ghost">📋 Copiar PGN</button>
+      <button id="btnOverPGNDl" class="ghost">⬇ Baixar PGN</button>
       <button id="btnOverClose" class="ghost">Ver tabuleiro</button>
     </div>
     <button class="link menu-btn">Voltar ao menu</button>
