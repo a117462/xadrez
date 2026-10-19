@@ -361,11 +361,11 @@ const winPct = (cp) => 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
 const accuracyOf = (loss) => Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * loss) - 3.1669));
 
 function classifyLoss(loss, isBest) {
-  if (isBest || loss < 1) return 'best';
-  if (loss < 3) return 'great';
-  if (loss < 14) return 'good';
-  if (loss < 24) return 'inacc';
-  if (loss < 34) return 'mistake';
+  if (isBest || loss < 0.3) return 'best';
+  if (loss < 2) return 'great';
+  if (loss < 5) return 'good';
+  if (loss < 10) return 'inacc';
+  if (loss < 20) return 'mistake';
   return 'blunder';
 }
 
@@ -1259,6 +1259,36 @@ if (typeof document === 'undefined') {
     return (w >= 0 ? '+' : '−') + Math.abs(w / 100).toFixed(2);
   }
 
+  // Análise com Stockfish: profundidade/tempo por posição (suba para mais precisão, desça para mais rapidez)
+  const SF_DEPTH = 14,
+    SF_MOVETIME = 1000;
+
+  async function sfEvalPos(pos, played) {
+    const legal = legalMoves(pos);
+    if (!legal.length) return { score: inCheck(pos, pos.turn) ? -MATE : 0, move: null, n: 0 };
+    const setup = [];
+    if (sf.hasElo) setup.push('setoption name UCI_LimitStrength value false');
+    if (sf.hasSkill) setup.push('setoption name Skill Level value 20');
+    const list = played.map((m) => sqName(m.from) + sqName(m.to) + (m.promo ? m.promo.toLowerCase() : ''));
+    const posCmd = 'position startpos' + (list.length ? ' moves ' + list.join(' ') : '');
+    let score = 0;
+    const bm = await sfSearch(setup, posCmd, `go depth ${SF_DEPTH} movetime ${SF_MOVETIME}`, (l) => {
+      if (!/ pv /.test(l) || /bound/.test(l)) return;
+      const m = /score (cp|mate) (-?\d+)/.exec(l);
+      if (!m) return;
+      const v = +m[2];
+      score = m[1] === 'cp' ? v : (v > 0 ? 1 : -1) * (MATE - 2 * Math.abs(v) + 1);
+    });
+    const move = legal.find(
+      (x) =>
+        bm &&
+        sqName(x.from) === bm.slice(0, 2) &&
+        sqName(x.to) === bm.slice(2, 4) &&
+        (x.promo || null) === (bm[4] ? bm[4].toUpperCase() : null)
+    );
+    return { score, move: move || legal[0], n: legal.length };
+  }
+
   const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
   async function startAnalysis() {
@@ -1273,17 +1303,30 @@ if (typeof document === 'undefined') {
     const token = ++anToken,
       pos = positions.slice(),
       mv = moves.map((x) => x.m),
-      evals = [],
-      shallow = [];
+      evals = [];
+    let shallow = [],
+      useSf = true;
+    try {
+      await sfLoad();
+    } catch (_) {
+      useSf = false; // sem Stockfish: usa o motor simples (menos fiável)
+    }
     for (let i = 0; i < pos.length; i++) {
       if (token !== anToken) return; // começou outra partida ou outra análise
       $('#anBar').style.width = Math.round((i / pos.length) * 100) + '%';
       $('#anText').textContent = `Analisando posição ${i + 1} de ${pos.length}…`;
       await frame();
-      evals.push(analyze(pos[i], ANALYSIS_DEPTH));
-      shallow.push(analyze(pos[i], ANALYSIS_DEPTH - 1));
+      if (useSf) {
+        const e = await sfEvalPos(pos[i], mv.slice(0, i));
+        if (token !== anToken) return;
+        evals.push(e);
+      } else {
+        evals.push(analyze(pos[i], ANALYSIS_DEPTH));
+        shallow.push(analyze(pos[i], ANALYSIS_DEPTH - 1));
+      }
     }
     if (token !== anToken) return;
+    if (useSf) shallow = evals; // mesma profundidade para o melhor lance e para o lance jogado
     an = { evals, rates: rateMoves(pos, mv, evals, shallow), done: true };
     showAnalysis();
   }
@@ -1456,11 +1499,12 @@ if (typeof document === 'undefined') {
   }
 
   // Posição + "go" em série; devolve o lance no formato UCI (ex.: "e2e4", "e7e8q").
-  function sfSearch(setup, posCmd, goCmd) {
+  function sfSearch(setup, posCmd, goCmd, onInfo) {
     const p = sfChain.then(
       () =>
         new Promise((res) => {
           const f = (l) => {
+            if (onInfo && l.startsWith('info')) onInfo(l);
             if (l.startsWith('bestmove')) {
               sf.listeners.delete(f);
               res(l.split(' ')[1]);
