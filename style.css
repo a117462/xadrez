@@ -135,3 +135,9 @@ select{font:inherit;padding:10px;border-radius:4px;border:1px solid var(--muted)
 .c-book{background:#b79b72}
 .coach{font-size:1.05rem;margin:8px 0 4px;color:var(--ink)}
 .coach:empty{display:none}
+
+/* análise ao lado do tabuleiro (em ecrãs estreitos fica por baixo) */
+#boardCol{display:flex;flex-direction:column;align-items:center;width:var(--s);max-width:100%}
+main:has(#analysis:not([hidden])){max-width:1100px}
+#game{flex-direction:row;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:8px 28px}
+#analysis{margin-top:0;width:min(94vw,420px);flex:0 1 420px;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;padding-right:4px}
