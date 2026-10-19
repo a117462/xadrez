@@ -672,6 +672,101 @@ if (typeof document === 'undefined') {
   const $ = (s) => document.querySelector(s);
   const side = (c) => (c === 'w' ? 'brancas' : 'pretas');
   const Side = (c) => (c === 'w' ? 'Brancas' : 'Pretas');
+  const REDUCE =
+    window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ===== CONFIGURAÇÕES (salvas no navegador) ===== */
+  const store = {
+    load() {
+      try {
+        return JSON.parse(localStorage.getItem('xadrez.cfg') || '{}');
+      } catch (_) {
+        return {};
+      }
+    },
+    save(o) {
+      try {
+        localStorage.setItem('xadrez.cfg', JSON.stringify(o));
+      } catch (_) {}
+    },
+  };
+
+  /* ===== EFEITOS SONOROS (WebAudio, sem ficheiros externos) ===== */
+  const Sfx = {
+    on: true,
+    ctx: null,
+    ac() {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        this.ctx = AC ? new AC() : null;
+      }
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+      return this.ctx;
+    },
+    blip(f, t, dur, vol, type) {
+      const c = this.ac();
+      if (!c || !this.on) return;
+      const o = c.createOscillator(),
+        g = c.createGain();
+      o.type = type || 'sine';
+      o.frequency.value = f;
+      const t0 = c.currentTime + t;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(vol, t0 + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g);
+      g.connect(c.destination);
+      o.start(t0);
+      o.stop(t0 + dur + 0.03);
+    },
+    noise(t, dur, vol) {
+      const c = this.ac();
+      if (!c || !this.on) return;
+      const n = Math.max(1, Math.floor(c.sampleRate * dur)),
+        buf = c.createBuffer(1, n, c.sampleRate),
+        d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      const s = c.createBufferSource();
+      s.buffer = buf;
+      const f = c.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 850;
+      const g = c.createGain();
+      g.gain.value = vol;
+      s.connect(f);
+      f.connect(g);
+      g.connect(c.destination);
+      s.start(c.currentTime + t);
+    },
+    move() {
+      this.blip(1900, 0, 0.05, 0.09, 'triangle');
+      this.blip(1350, 0.014, 0.035, 0.045, 'sine');
+    },
+    capture() {
+      this.noise(0, 0.09, 0.2);
+      this.blip(300, 0, 0.07, 0.09, 'square');
+    },
+    castle() {
+      this.move();
+      setTimeout(() => this.move(), 80);
+    },
+    check() {
+      this.blip(880, 0, 0.09, 0.09);
+      this.blip(1174, 0.09, 0.13, 0.09);
+    },
+    promote() {
+      [523, 659, 784].forEach((f, i) => this.blip(f, i * 0.07, 0.13, 0.08));
+    },
+    end(winner) {
+      if (winner === null) {
+        this.blip(440, 0, 0.2, 0.08);
+        this.blip(440, 0.22, 0.3, 0.08);
+      } else {
+        const seq = [523, 659, 784, 1046];
+        seq.forEach((f, i) => this.blip(f, i * 0.12, 0.22, 0.09));
+      }
+    },
+  };
 
   /* ===== MODOS DE JOGO (minutos + incremento em segundos; min 0 = sem relógio) ===== */
   const MODES = [
@@ -718,8 +813,14 @@ if (typeof document === 'undefined') {
   let dnd = null,
     ghost = null,
     raf = 0; // arrastar peças
+  let anim = null,
+    animEl = null,
+    animTimer = 0; // animação do lance
+  let manualFlip = false; // girar o tabuleiro (só visual)
+  let coordsOn = true;
   let chosen = MODES.find((m) => m.min === 5 && m.inc === 0);
-  let roomTc = null;
+  let roomTc = null,
+    lastCode = '';
   let positions = [], // positions[k] = posição depois de k lances
     moves = [], // {m, txt, mover}
     premoves = [],
@@ -728,6 +829,8 @@ if (typeof document === 'undefined') {
     an = null,
     anToken = 0;
   const ANALYSIS_DEPTH = 4;
+
+  const effectiveFlip = () => (me === 'b') !== manualFlip;
 
   /* ===== MENU: escolha do modo ===== */
   function buildModes() {
@@ -749,6 +852,7 @@ if (typeof document === 'undefined') {
         b.setAttribute('aria-pressed', m === chosen);
         b.onclick = () => {
           chosen = m;
+          saveCfg();
           buildModes();
         };
         wrap.appendChild(b);
@@ -756,6 +860,28 @@ if (typeof document === 'undefined') {
       g.appendChild(wrap);
       box.appendChild(g);
     }
+  }
+
+  function saveCfg() {
+    store.save({
+      mode: [chosen.min, chosen.inc],
+      elo: cpuElo,
+      pre: premoveOn,
+      snd: Sfx.on,
+      coord: coordsOn,
+    });
+  }
+
+  function applyCfg() {
+    const c = store.load();
+    if (Array.isArray(c.mode)) {
+      const m = MODES.find((x) => x.min === c.mode[0] && x.inc === c.mode[1]);
+      if (m) chosen = m;
+    }
+    if (typeof c.elo === 'number') cpuElo = Math.max(800, Math.min(3000, Math.round(c.elo)));
+    if (typeof c.pre === 'boolean') premoveOn = c.pre;
+    if (typeof c.snd === 'boolean') Sfx.on = c.snd;
+    if (typeof c.coord === 'boolean') coordsOn = c.coord;
   }
 
   /* ===== RELÓGIO ===== */
@@ -826,6 +952,7 @@ if (typeof document === 'undefined') {
     targets = [];
     premoves = [];
     cancelDrag();
+    stopAnim();
     cpuToken++;
     $('#promo').hidden = true;
     $('#btnAnalyze').hidden = !moves.length;
@@ -840,6 +967,7 @@ if (typeof document === 'undefined') {
     $('#overBox').className = 'box result ' + k;
     $('#over').hidden = false;
     render();
+    Sfx.end(winner === null ? null : mode === 'local' || winner === me ? 'w' : null);
     $('#btnOverNew').focus();
   }
 
@@ -858,9 +986,40 @@ if (typeof document === 'undefined') {
           (m.promo ? '=' + m.promo : '');
   }
 
+  const MATV = { P: 1, N: 3, B: 3, R: 5, Q: 9 };
+  const matOf = (c) => caps[c].reduce((s, p) => s + MATV[p[1]], 0);
+
+  function squarePos(i) {
+    let r = i >> 3,
+      c = i & 7;
+    if (effectiveFlip()) {
+      r = 7 - r;
+      c = 7 - c;
+    }
+    return {
+      left: `calc(5px + (100% - 10px) * ${c} / 8)`,
+      top: `calc(5px + (100% - 10px) * ${r} / 8)`,
+    };
+  }
+
+  function stopAnim() {
+    clearTimeout(animTimer);
+    anim = null;
+    if (animEl) {
+      animEl.remove();
+      animEl = null;
+    }
+  }
+
+  function queueAnim(from, to, piece) {
+    if (REDUCE || review !== null || !piece) return;
+    stopAnim();
+    anim = { from, to, piece };
+  }
+
   function render() {
     const board = $('#board'),
-      flip = me === 'b',
+      flip = effectiveFlip(),
       inReview = review !== null,
       S = inReview ? positions[review] : st,
       lastM = inReview ? (review > 0 ? moves[review - 1].m : null) : last,
@@ -868,7 +1027,7 @@ if (typeof document === 'undefined') {
       tg = inReview ? [] : targets;
     board.innerHTML = '';
     const chk = inCheck(S, S.turn) ? kingSq(S.board, S.turn) : -1;
-    const pre = premoves.length ? new Set(premoves.flatMap((p) => [p.from, p.to])) : null;
+    const pre = !inReview && premoves.length ? new Set(premoves.flatMap((p) => [p.from, p.to])) : null;
     for (let dr = 0; dr < 8; dr++)
       for (let dc = 0; dc < 8; dc++) {
         const r = flip ? 7 - dr : dr,
@@ -895,6 +1054,7 @@ if (typeof document === 'undefined') {
         board.appendChild(d);
       }
     const top = opp(me),
+      diff = matOf('w') - matOf('b'),
       names =
         mode === 'local'
           ? { w: 'Brancas', b: 'Pretas' }
@@ -905,14 +1065,55 @@ if (typeof document === 'undefined') {
     ]) {
       const e = $(el);
       e.querySelector('.name').textContent = names[col];
-      e.querySelector('.caps').textContent = caps[col].map((x) => GL[x[1]]).join('');
-      e.classList.toggle('turn', !over && st.turn === col);
+      const adv = diff !== 0 && (col === 'w') === (diff > 0) ? ` <b class="adv">+${Math.abs(diff)}</b>` : '';
+      e.querySelector('.caps').innerHTML = caps[col].map((x) => GL[x[1]]).join('') + adv;
+      e.classList.toggle('turn', !over && !inReview && st.turn === col);
     }
-    $('#moves').innerHTML = history.map((h) => `<li>${h}</li>`).join('');
+    $('#moves').innerHTML = history
+      .map(
+        (h, i) =>
+          `<li data-k="${i + 1}" class="${inReview && review === i + 1 ? 'on' : ''}">${h}</li>`
+      )
+      .join('');
+    $('#moves').classList.toggle('clickable', over && !an);
     $('#moves').scrollTop = 1e6;
+    $('#revRow').hidden = !(over && !an && moves.length);
     updatePreBtn();
     updateClocks();
     drawMarks();
+    runAnim();
+  }
+
+  // Anima o último lance: a peça desliza da casa de origem para a de destino.
+  function runAnim() {
+    if (!anim) return;
+    const a = anim;
+    anim = null;
+    const toSq = $('#board').querySelector(`[data-i="${a.to}"] .piece`);
+    if (toSq) toSq.style.visibility = 'hidden';
+    const g = document.createElement('div');
+    g.className = 'anim-ghost';
+    const size = $('#board').clientWidth / 8;
+    g.style.width = g.style.height = size + 'px';
+    g.style.fontSize = size * 0.8 + 'px';
+    g.innerHTML = `<span class="piece ${a.piece[0]}">${GL[a.piece[1]]}</span>`;
+    const p0 = squarePos(a.from);
+    g.style.left = p0.left;
+    g.style.top = p0.top;
+    $('#boardWrap').appendChild(g);
+    animEl = g;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const p1 = squarePos(a.to);
+        g.style.left = p1.left;
+        g.style.top = p1.top;
+      })
+    );
+    animTimer = setTimeout(() => {
+      animEl = null;
+      g.remove();
+      if (review === null) render(); // revela a peça no destino
+    }, 200);
   }
 
   function setStatus(t) {
@@ -920,9 +1121,9 @@ if (typeof document === 'undefined') {
   }
 
   function updateStatus() {
-    const moves = legalMoves(st),
+    const legal = legalMoves(st),
       chk = inCheck(st, st.turn);
-    if (!moves.length) {
+    if (!legal.length) {
       if (chk) finish('Xeque-mate', 'O rei não tem como escapar.', opp(st.turn));
       else
         finish(
@@ -1055,6 +1256,7 @@ if (typeof document === 'undefined') {
   function play(m, remote, clk) {
     if (over) return;
     cancelDrag();
+    stopAnim();
     const mover = st.turn;
     if (tc) {
       tick();
@@ -1066,16 +1268,23 @@ if (typeof document === 'undefined') {
     }
     const n = apply(st, m),
       txt = moveText(st, m);
+    // sons: roque > captura > lance; promoção e xeque entram por cima
+    if (m.castle) Sfx.castle();
+    else if (n.captured || m.ep) Sfx.capture();
+    else Sfx.move();
+    if (m.promo) setTimeout(() => Sfx.promote(), 60);
     if (n.captured) caps[mover].push(n.captured);
     history.push(txt);
     moves.push({ m, txt, mover });
     positions.push(n);
     st = n;
     last = m;
+    queueAnim(m.from, m.to, st.board[m.to]);
     sel = null;
     targets = [];
-    marks = [];
+    // as setas/círculos do tabuleiro ficam guardados durante a partida
     updateStatus();
+    if (!over && inCheck(st, st.turn)) setTimeout(() => Sfx.check(), 110);
     render();
     if (!remote && mode === 'net' && conn && conn.open)
       conn.send({
@@ -1094,6 +1303,7 @@ if (typeof document === 'undefined') {
     me = color || 'w';
     tc = newTc || null;
     cancelDrag();
+    stopAnim();
     st = newState();
     sel = null;
     targets = [];
@@ -1112,6 +1322,7 @@ if (typeof document === 'undefined') {
     $('#analysis').hidden = true;
     $('#btnAnalyze').hidden = true;
     $('#btnPre').hidden = mode !== 'net';
+    $('#btnPreClear').hidden = mode !== 'net';
     $('#cpuBar').hidden = mode !== 'cpu';
     cpuToken++;
     if (mode === 'cpu') {
@@ -1155,7 +1366,7 @@ if (typeof document === 'undefined') {
     const x = Math.floor((cx - r.left - b.clientLeft) / w);
     const y = Math.floor((cy - r.top - b.clientTop) / w);
     if (x < 0 || x > 7 || y < 0 || y > 7) return -1;
-    return me === 'b' ? (7 - y) * 8 + (7 - x) : y * 8 + x;
+    return effectiveFlip() ? (7 - y) * 8 + (7 - x) : y * 8 + x;
   }
   const sqAt = (e) => sqAtXY(e.clientX, e.clientY);
 
@@ -1176,7 +1387,7 @@ if (typeof document === 'undefined') {
     const pos = (i) => {
       let r = i >> 3,
         c = i & 7;
-      if (me === 'b') {
+      if (effectiveFlip()) {
         r = 7 - r;
         c = 7 - c;
       }
@@ -1223,8 +1434,6 @@ if (typeof document === 'undefined') {
   }
 
   /* ===== ARRASTAR PEÇAS (com um balanço sutil, como se a peça tivesse peso) ===== */
-  const REDUCE =
-    window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const sqEl = (i) => $(`[data-i="${i}"]`);
 
   const placeGhost = () => {
@@ -1401,6 +1610,29 @@ if (typeof document === 'undefined') {
     }
   });
 
+  /* ===== REVISÃO DA PARTIDA (após o fim, sem precisar de análise) ===== */
+  function showRev(i) {
+    if (!over || !moves.length) return;
+    review = Math.max(0, Math.min(moves.length, i));
+    marks = [];
+    render();
+  }
+
+  function liveGame() {
+    if (review === null) return;
+    review = null;
+    marks = [];
+    render();
+  }
+
+  $('#moves').addEventListener('click', (e) => {
+    const li = e.target.closest('li');
+    if (li && over && !an) showRev(+li.dataset.k);
+  });
+  $('#btnRevPrev').onclick = () => showRev((review === null ? moves.length : review) - 1);
+  $('#btnRevNext').onclick = () => showRev((review === null ? moves.length : review) + 1);
+  $('#btnRevLive').onclick = liveGame;
+
   /* ===== REDE (PeerJS: conexão direta entre os dois PCs) ===== */
   function onData(d) {
     if (!d || typeof d !== 'object') return;
@@ -1436,10 +1668,13 @@ if (typeof document === 'undefined') {
     conn = null;
     roomTc = tcOf(chosen);
     const code = Math.random().toString(36).slice(2, 7).toUpperCase();
+    lastCode = code;
     $('#roomInfo').textContent = 'Criando sala...';
+    $('#copyRow').hidden = true;
     peer = new Peer('xadrez-' + code);
     peer.on('open', () => {
       $('#roomInfo').innerHTML = `Código da sala: <b>${code}</b>. Envie o código ao amigo e aguarde ele entrar.`;
+      $('#copyRow').hidden = false;
     });
     peer.on('connection', (c) => {
       if (conn) return c.close();
@@ -1469,6 +1704,27 @@ if (typeof document === 'undefined') {
       c.on('close', onClose);
     });
     peer.on('error', peerError);
+  };
+
+  $('#codeInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('#btnJoin').click();
+  });
+
+  $('#btnCopy').onclick = async () => {
+    if (!lastCode) return;
+    try {
+      await navigator.clipboard.writeText(lastCode);
+      $('#btnCopy').textContent = '✓ Copiado!';
+    } catch (_) {
+      // fallback para contextos sem clipboard API
+      const r = document.createRange();
+      r.selectNodeContents($('#roomInfo'));
+      const s = getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+      $('#btnCopy').textContent = 'Código selecionado';
+    }
+    setTimeout(() => ($('#btnCopy').textContent = '📋 Copiar código'), 1600);
   };
 
   $('#btnLocal').onclick = () => startGame('local', 'w', tcOf(chosen));
@@ -1506,6 +1762,28 @@ if (typeof document === 'undefined') {
       if (!over && !confirm('Voltar ao menu? A partida atual será perdida.')) return;
       location.reload();
     };
+
+  /* ===== CONTROLES VISUAIS: girar, som, coordenadas ===== */
+  function syncViewButtons() {
+    $('#btnSound').textContent = Sfx.on ? '🔊 Som: ON' : '🔇 Som: OFF';
+    $('#btnCoords').textContent = coordsOn ? 'Coordenadas: ON' : 'Coordenadas: OFF';
+    document.body.classList.toggle('no-coords', !coordsOn);
+  }
+  $('#btnFlip').onclick = () => {
+    manualFlip = !manualFlip;
+    render();
+  };
+  $('#btnSound').onclick = () => {
+    Sfx.on = !Sfx.on;
+    if (Sfx.on) Sfx.move();
+    saveCfg();
+    syncViewButtons();
+  };
+  $('#btnCoords').onclick = () => {
+    coordsOn = !coordsOn;
+    saveCfg();
+    syncViewButtons();
+  };
 
   /* ===== ANÁLISE DA PARTIDA ===== */
   const CLS = {
@@ -1603,6 +1881,7 @@ if (typeof document === 'undefined') {
     if (token !== anToken) return;
     if (useSf) shallow = evals; // mesma profundidade para o melhor lance e para o lance jogado
     an = { evals, rates: rateMoves(pos, mv, evals, useSf ? null : shallow), done: true, sf: useSf };
+    review = null;
     showAnalysis();
   }
 
@@ -1619,12 +1898,12 @@ if (typeof document === 'undefined') {
       const w = positions[i].turn === 'w' ? e.score : -e.score;
       return [(i / (N - 1 || 1)) * W, H - (winPct(clampCp(w)) / 100) * H];
     });
-    let h = `<rect width="${W}" height="${H}" fill="#14110f"/>`;
+    let h = `<rect width="${W}" height="${H}" fill="#12100c"/>`;
     h += `<path d="M0,${H} ${pts.map((p) => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')} L${W},${H} Z" fill="#d9d2c3"/>`;
     h += `<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="#7a6f60" stroke-width=".6"/>`;
     an.rates.forEach((r, k) => {
       if (['sigma', 'awesome', 'strange', 'bad', 'miss', 'clown'].includes(r.cls))
-        h += `<circle cx="${pts[k + 1][0].toFixed(1)}" cy="${pts[k + 1][1].toFixed(1)}" r="2.6" fill="${CLS[r.cls].color}" stroke="#14110f" stroke-width=".6"/>`;
+        h += `<circle cx="${pts[k + 1][0].toFixed(1)}" cy="${pts[k + 1][1].toFixed(1)}" r="2.6" fill="${CLS[r.cls].color}" stroke="#12100c" stroke-width=".6"/>`;
     });
     if (review !== null) h += `<line x1="${pts[review][0].toFixed(1)}" x2="${pts[review][0].toFixed(1)}" y1="0" y2="${H}" stroke="#f2c14e" stroke-width="1"/>`;
     $('#anGraph').innerHTML = h;
@@ -1674,6 +1953,7 @@ if (typeof document === 'undefined') {
       t += `<tr><td class="n">${k / 2 + 1}.</td>${cell(k)}${k + 1 < moves.length ? cell(k + 1) : '<td></td>'}</tr>`;
     $('#anMoves').innerHTML = t;
     $('#anDetail').textContent = 'Clique num lance ou no gráfico (ou use as setas ← →) para ver a posição e o comentário.';
+    render();
   }
 
   $('#anSummary').addEventListener('click', (e) => {
@@ -1686,7 +1966,7 @@ if (typeof document === 'undefined') {
   $('#anGraph').addEventListener('click', (e) => {
     if (!an || !an.done) return;
     const r = e.currentTarget.getBoundingClientRect();
-    gotoReview(Math.round(((e.clientX - r.left) / r.width) * moves.length));
+    gotoReview(Math.round(((e.clientX - r.left) / r.width) * (positions.length - 1)));
   });
 
   function gotoReview(i) {
@@ -1734,6 +2014,7 @@ if (typeof document === 'undefined') {
   /* ===== PRÉ-MOVES: botão e atalhos ===== */
   $('#btnPre').onclick = () => {
     premoveOn = !premoveOn;
+    saveCfg();
     if (!premoveOn) {
       premoves = [];
       sel = null;
@@ -1741,12 +2022,18 @@ if (typeof document === 'undefined') {
     }
     render();
   };
+  $('#btnPreClear').onclick = clearPremoves;
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && (premoves.length || sel !== null)) clearPremoves();
-    if (an && an.done && !$('#analysis').hidden && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const dir = e.key === 'ArrowLeft' ? -1 : 1;
+    if (an && an.done && !$('#analysis').hidden) {
       e.preventDefault();
-      gotoReview((review === null ? moves.length : review) + (e.key === 'ArrowLeft' ? -1 : 1));
+      gotoReview((review === null ? moves.length : review) + dir);
+    } else if (over && moves.length) {
+      e.preventDefault();
+      showRev((review === null ? moves.length : review) + dir);
     }
   });
 
@@ -1788,11 +2075,11 @@ if (typeof document === 'undefined') {
       }
       const opts = { hasElo: false, eloMin: 1320, eloMax: 3190, hasSkill: false };
       const fail = (e) => {
-        clearTimeout(timer);
+        clearTimeout(to);
         w.terminate();
         reject(e);
       };
-      const timer = setTimeout(() => fail(new Error('timeout')), 15000);
+      const to = setTimeout(() => fail(new Error('timeout')), 15000);
       w.onerror = () => fail(new Error('erro ao carregar ' + url));
       w.onmessage = (ev) => {
         const l = typeof ev.data === 'string' ? ev.data : '';
@@ -1804,7 +2091,7 @@ if (typeof document === 'undefined') {
           if (mx) opts.eloMax = +mx[1];
         } else if (l.startsWith('option name Skill Level')) opts.hasSkill = true;
         else if (l === 'uciok') {
-          clearTimeout(timer);
+          clearTimeout(to);
           w.onerror = null;
           resolve({ w, ...opts });
         }
@@ -1911,6 +2198,7 @@ if (typeof document === 'undefined') {
     cpuElo = +v;
     for (const s of ['#eloRange', '#eloRange2']) $(s).value = cpuElo;
     for (const s of ['#eloOut', '#eloOut2']) $(s).textContent = cpuElo;
+    saveCfg();
     if (mode === 'cpu') render();
   }
   $('#eloRange').oninput = (e) => updateEloUI(e.target.value);
@@ -1932,5 +2220,10 @@ if (typeof document === 'undefined') {
     $('#btnCpu').disabled = false;
   };
 
+  /* ===== INÍCIO ===== */
+  applyCfg();
   buildModes();
+  syncViewButtons();
+  for (const s of ['#eloRange', '#eloRange2']) $(s).value = cpuElo;
+  for (const s of ['#eloOut', '#eloOut2']) $(s).textContent = cpuElo;
 }

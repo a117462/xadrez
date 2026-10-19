@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Xadrez online</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♞</text></svg>">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -20,6 +21,9 @@
       <p>Um cria a sala e envia o código. O outro digita o código e entra.</p>
       <button id="btnCreate">Criar sala</button>
       <p id="roomInfo" class="info"></p>
+      <div class="row" id="copyRow" hidden>
+        <button id="btnCopy" class="ghost">📋 Copiar código</button>
+      </div>
       <div class="row">
         <input id="codeInput" placeholder="Código da sala" maxlength="5" autocomplete="off">
         <button id="btnJoin">Entrar</button>
@@ -73,7 +77,17 @@
       <button id="btnPreClear" class="ghost" hidden>Limpar pré-moves</button>
       <button id="btnAnalyze" class="ghost" hidden>Analisar partida</button>
     </div>
-    <p class="info small hint">Clique direito (ou arraste) no tabuleiro para marcar casas e setas. Shift = vermelho, Alt/Ctrl = azul. Clique esquerdo apaga. Com os pré-moves ligados, você agenda lances na vez do amigo (Esc cancela).</p>
+    <div class="row" id="viewRow">
+      <button id="btnFlip" class="ghost" title="Girar o tabuleiro (visual)">⟳ Girar</button>
+      <button id="btnSound" class="ghost" title="Ligar/desligar sons">🔊 Som: ON</button>
+      <button id="btnCoords" class="ghost" title="Mostrar/ocultar coordenadas">Coordenadas: ON</button>
+    </div>
+    <div class="row" id="revRow" hidden>
+      <button id="btnRevPrev" class="ghost" aria-label="Lance anterior">‹ Anterior</button>
+      <button id="btnRevLive" class="ghost">● Posição atual</button>
+      <button id="btnRevNext" class="ghost" aria-label="Próximo lance">Próximo ›</button>
+    </div>
+    <p class="info small hint">Clique direito (ou arraste) no tabuleiro para marcar casas e setas. Shift = vermelho, Alt/Ctrl = azul. Clique esquerdo apaga. Com os pré-moves ligados, você agenda lances na vez do amigo (Esc cancela). Depois da partida, clique nos lances ou use ← → para revisitar.</p>
     <ol id="moves"></ol>
 
     </div>
