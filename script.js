@@ -362,27 +362,109 @@ const accuracyOf = (loss) => Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04
 
 function classifyLoss(loss, isBest) {
   if (isBest || loss < 0.3) return 'best';
-  if (loss < 2) return 'great';
+  if (loss < 2) return 'excellent';
   if (loss < 5) return 'good';
-  if (loss < 10) return 'inacc';
-  if (loss < 20) return 'mistake';
-  return 'blunder';
+  if (loss < 10) return 'strange'; // imprecisão
+  if (loss < 20) return 'bad'; // erro
+  return 'clown'; // gafe
 }
 
+/* ---- Sacrifício (para o "Sigma"/Brilliant): troca estática (SEE) na casa de destino ---- */
+const SEE_VAL = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 100 };
+const SEE_KN = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
+const SEE_DIR = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+// atacante de menor valor de `sq` para o lado `by` (índice, ou -1). A peça que captura sai do tabuleiro, então aparecem os raios-x.
+function leastAttacker(b, sq, by) {
+  const r = sq >> 3,
+    c = sq & 7;
+  const at = (rr, cc) => (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 ? rr * 8 + cc : -1);
+  let best = -1,
+    bestV = 1e9;
+  const consider = (i) => {
+    const v = SEE_VAL[b[i][1]];
+    if (v < bestV) {
+      bestV = v;
+      best = i;
+    }
+  };
+  const pr = by === 'w' ? r + 1 : r - 1;
+  for (const dc of [-1, 1]) {
+    const i = at(pr, c + dc);
+    if (i >= 0 && b[i] === by + 'P') consider(i);
+  }
+  for (const [dr, dc] of SEE_KN) {
+    const i = at(r + dr, c + dc);
+    if (i >= 0 && b[i] === by + 'N') consider(i);
+  }
+  for (const [dr, dc] of SEE_DIR) {
+    const diag = dr && dc;
+    for (let n = 1, rr = r + dr, cc = c + dc; rr >= 0 && rr < 8 && cc >= 0 && cc < 8; n++, rr += dr, cc += dc) {
+      const i = rr * 8 + cc,
+        p = b[i];
+      if (!p) continue;
+      if (p[0] === by && (p[1] === 'Q' || p[1] === (diag ? 'B' : 'R') || (n === 1 && p[1] === 'K'))) consider(i);
+      break;
+    }
+  }
+  return best;
+}
+
+// quanto `side` ganha, no máximo, capturando em `sq` (>= 0)
+function seeGain(b, sq, side) {
+  const a = leastAttacker(b, sq, side),
+    t = b[sq];
+  if (a < 0 || !t) return 0;
+  const nb = b.slice();
+  nb[sq] = b[a];
+  nb[a] = null;
+  return Math.max(0, SEE_VAL[t[1]] - seeGain(nb, sq, opp(side)));
+}
+
+// material (em peões) que o lance entrega na troca: > 0 = sacrifício
+function sacrificeValue(st, m) {
+  if (m.castle) return 0;
+  let got = m.ep ? 1 : st.board[m.to] ? SEE_VAL[st.board[m.to][1]] : 0;
+  if (m.promo) got += SEE_VAL[m.promo] - 1;
+  const n = apply(st, m);
+  return seeGain(n.board, m.to, opp(st.turn)) - got;
+}
+
+const pieceCount = (b) => b.filter((p) => p && 'QRBN'.includes(p[1])).length;
+
 // positions[k] = posição depois de k lances; mvs[k] = lance que leva de positions[k] a positions[k+1].
-// evals[k] = analyze(positions[k], D) (o melhor possível); shallow[k] = analyze(positions[k], D-1).
-// O lance jogado vale -shallow[k+1]: assim os dois valores vêm da mesma profundidade de busca.
+// evals[k] = { score (de quem joga, melhor linha), score2 (2ª melhor linha ou null), move (melhor lance), n (lances legais) }.
+// O lance jogado vale -evals[k+1].score: os dois valores vêm da mesma profundidade (se `shallow` for dado, usa-o).
+//
+// Classes: sigma (Brilliant), awesome (Great), best, excellent, good, strange (imprecisão), bad (erro), miss, clown (gafe).
+//  - Sigma: sacrifício de peça (>= 2 peões), que é o melhor/quase melhor lance, que não deixa a posição má
+//    e que não ganhava de qualquer jeito (o 2º melhor lance não ganha tudo). No final de jogo tem de ser quase o único bom lance.
+//  - Awesome: lance quase único (o 2º melhor perde >= 15% de chance de vitória), que não é uma recaptura óbvia.
+//  - Miss: o adversário errou no lance anterior e você não aproveitou.
 function rateMoves(positions, mvs, evals, shallow) {
-  return mvs.map((m, k) => {
-    const e = evals[k];
-    const same =
-      e.move && e.move.from === m.from && e.move.to === m.to && (e.move.promo || null) === (m.promo || null);
-    const best = clampCp(e.score),
-      played = clampCp(-shallow[k + 1].score);
-    let loss = Math.max(0, winPct(best) - winPct(played));
-    if (same || e.n <= 1) loss = 0;
-    return { loss, cls: classifyLoss(loss, same || e.n <= 1), acc: accuracyOf(loss), mover: positions[k].turn };
+  const ev = shallow || evals,
+    out = [];
+  mvs.forEach((m, k) => {
+    const e = evals[k],
+      same = !!e.move && e.move.from === m.from && e.move.to === m.to && (e.move.promo || null) === (m.promo || null),
+      forced = same || e.n <= 1;
+    const bestW = winPct(clampCp(e.score)),
+      playedW = winPct(clampCp(-ev[k + 1].score));
+    let loss = forced ? 0 : Math.max(0, bestW - playedW);
+    let cls = classifyLoss(loss, forced);
+    const prevLoss = k > 0 ? out[k - 1].loss : 0;
+    if ((cls === 'strange' || cls === 'bad') && prevLoss >= 10) cls = 'miss';
+    if ((cls === 'best' || cls === 'excellent') && e.n > 1 && e.score2 != null) {
+      const s2 = winPct(clampCp(e.score2)),
+        gap = bestW - s2,
+        endgame = pieceCount(positions[k].board) <= 6,
+        recapture = k > 0 && mvs[k - 1].to === m.to && positions[k].board[m.to];
+      if (sacrificeValue(positions[k], m) >= 2 && playedW >= 40 && s2 < 85 && (!endgame || gap >= 15)) cls = 'sigma';
+      else if (gap >= 15 && bestW < 92 && !recapture) cls = 'awesome';
+    }
+    out.push({ loss, cls, acc: accuracyOf(loss), mover: positions[k].turn });
   });
+  return out;
 }
 
 //END
@@ -396,6 +478,8 @@ if (typeof document === 'undefined') {
     canMate,
     analyze,
     rateMoves,
+    sacrificeValue,
+    classifyLoss,
     evaluate,
     MATE,
   };
@@ -1241,13 +1325,18 @@ if (typeof document === 'undefined') {
 
   /* ===== ANÁLISE DA PARTIDA ===== */
   const CLS = {
-    best: { label: 'Melhor', sym: '★' },
-    great: { label: 'Excelente', sym: '!' },
-    good: { label: 'Bom', sym: '✓' },
-    inacc: { label: 'Imprecisão', sym: '?!' },
-    mistake: { label: 'Erro', sym: '?' },
-    blunder: { label: 'Gafe', sym: '??' },
+    sigma: { label: 'Sigma', sym: '!!', color: '#26c9a8', note: 'Sacrifício brilhante: não era óbvio e ainda assim era dos melhores lances.' },
+    awesome: { label: 'Awesome', sym: '!', color: '#7aa7d6', note: 'Lance quase único: as alternativas eram bem piores.' },
+    best: { label: 'Best', sym: '★', color: '#7bd88f' },
+    excellent: { label: 'Excelente', sym: '✓', color: '#5fc2a3' },
+    good: { label: 'Bom', sym: '•', color: '#a9b6c4' },
+    strange: { label: 'Strange', sym: '?!', color: '#f2c14e' },
+    bad: { label: 'Bad', sym: '?', color: '#ef8f3a' },
+    miss: { label: 'Miss', sym: '✕', color: '#e5484d', note: 'O adversário errou no lance anterior e você não aproveitou.' },
+    clown: { label: 'Clown', sym: '??', color: '#a31d24' },
   };
+  const MAIN = ['sigma', 'awesome', 'best', 'strange', 'bad', 'miss', 'clown'],
+    EXTRA = ['excellent', 'good'];
   const nameOf = (c) => Side(c) + ((mode === 'net' || mode === 'cpu') && c === me ? ' (você)' : '');
 
   function fmtEval(score, turn) {
@@ -1266,18 +1355,19 @@ if (typeof document === 'undefined') {
   async function sfEvalPos(pos, played) {
     const legal = legalMoves(pos);
     if (!legal.length) return { score: inCheck(pos, pos.turn) ? -MATE : 0, move: null, n: 0 };
-    const setup = [];
+    const setup = ['setoption name MultiPV value 2'];
     if (sf.hasElo) setup.push('setoption name UCI_LimitStrength value false');
     if (sf.hasSkill) setup.push('setoption name Skill Level value 20');
     const list = played.map((m) => sqName(m.from) + sqName(m.to) + (m.promo ? m.promo.toLowerCase() : ''));
     const posCmd = 'position startpos' + (list.length ? ' moves ' + list.join(' ') : '');
-    let score = 0;
+    const scores = {};
     const bm = await sfSearch(setup, posCmd, `go depth ${SF_DEPTH} movetime ${SF_MOVETIME}`, (l) => {
       if (!/ pv /.test(l) || /bound/.test(l)) return;
       const m = /score (cp|mate) (-?\d+)/.exec(l);
       if (!m) return;
       const v = +m[2];
-      score = m[1] === 'cp' ? v : (v > 0 ? 1 : -1) * (MATE - 2 * Math.abs(v) + 1);
+      const mp = /multipv (\d+)/.exec(l);
+      scores[mp ? +mp[1] : 1] = m[1] === 'cp' ? v : (v > 0 ? 1 : -1) * (MATE - 2 * Math.abs(v) + 1);
     });
     const move = legal.find(
       (x) =>
@@ -1286,7 +1376,7 @@ if (typeof document === 'undefined') {
         sqName(x.to) === bm.slice(2, 4) &&
         (x.promo || null) === (bm[4] ? bm[4].toUpperCase() : null)
     );
-    return { score, move: move || legal[0], n: legal.length };
+    return { score: scores[1] || 0, score2: legal.length > 1 && scores[2] !== undefined ? scores[2] : null, move: move || legal[0], n: legal.length };
   }
 
   const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -1327,34 +1417,91 @@ if (typeof document === 'undefined') {
     }
     if (token !== anToken) return;
     if (useSf) shallow = evals; // mesma profundidade para o melhor lance e para o lance jogado
-    an = { evals, rates: rateMoves(pos, mv, evals, shallow), done: true };
+    an = { evals, rates: rateMoves(pos, mv, evals, useSf ? null : shallow), done: true, sf: useSf };
     showAnalysis();
+  }
+
+  const phaseOf = (k) => (pieceCount(positions[k].board) <= 6 ? 2 : k < 20 ? 0 : 1);
+  const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+  const phCls = (v) => (v === null ? null : v >= 90 ? 'best' : v >= 80 ? 'excellent' : v >= 65 ? 'good' : v >= 50 ? 'strange' : v >= 35 ? 'bad' : 'clown');
+  const badge = (k) => `<span class="bd c-${k}" title="${CLS[k].label}">${CLS[k].sym}</span>`;
+
+  function drawGraph() {
+    const N = an.evals.length,
+      W = 300,
+      H = 90;
+    const pts = an.evals.map((e, i) => {
+      const w = positions[i].turn === 'w' ? e.score : -e.score;
+      return [(i / (N - 1 || 1)) * W, H - (winPct(clampCp(w)) / 100) * H];
+    });
+    let h = `<rect width="${W}" height="${H}" fill="#14110f"/>`;
+    h += `<path d="M0,${H} ${pts.map((p) => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')} L${W},${H} Z" fill="#d9d2c3"/>`;
+    h += `<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="#7a6f60" stroke-width=".6"/>`;
+    an.rates.forEach((r, k) => {
+      if (['sigma', 'awesome', 'strange', 'bad', 'miss', 'clown'].includes(r.cls))
+        h += `<circle cx="${pts[k + 1][0].toFixed(1)}" cy="${pts[k + 1][1].toFixed(1)}" r="2.6" fill="${CLS[r.cls].color}" stroke="#14110f" stroke-width=".6"/>`;
+    });
+    if (review !== null) h += `<line x1="${pts[review][0].toFixed(1)}" x2="${pts[review][0].toFixed(1)}" y1="0" y2="${H}" stroke="#f2c14e" stroke-width="1"/>`;
+    $('#anGraph').innerHTML = h;
   }
 
   function showAnalysis() {
     $('#anProgress').hidden = true;
     $('#anResult').hidden = false;
+    $('#anEngine').textContent = an.sf
+      ? `Motor: Stockfish (profundidade ${SF_DEPTH}, até ${SF_MOVETIME / 1000}s por posição).`
+      : 'O Stockfish não carregou: análise simplificada, pouco fiável (sem Sigma/Awesome). Coloque stockfish.js na pasta do site.';
     const rates = an.rates,
       acc = { w: [], b: [] },
-      cnt = { w: {}, b: {} };
-    rates.forEach((r) => {
+      cnt = { w: {}, b: {} },
+      ph = { w: [[], [], []], b: [[], [], []] };
+    rates.forEach((r, k) => {
       acc[r.mover].push(r.acc);
       cnt[r.mover][r.cls] = (cnt[r.mover][r.cls] || 0) + 1;
+      ph[r.mover][phaseOf(k)].push(r.acc);
     });
-    const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) + '%' : '–');
+    const f1 = (a) => (a.length ? avg(a).toFixed(1) : '–');
+    // classificação estimada a partir da precisão (aproximação; não é a do chess.com)
+    const rating = (a) => (a.length ? Math.round(Math.max(100, 3000 * Math.pow(avg(a) / 100, 4)) / 50) * 50 : '–');
+    const row = (k, extra) =>
+      `<tr${extra ? ' class="extra"' : ''}><td>${badge(k)} ${CLS[k].label}</td><td>${cnt.w[k] || 0}</td><td>${cnt.b[k] || 0}</td></tr>`;
     let h = `<table class="an-sum"><tr><th></th><th>${nameOf('w')}</th><th>${nameOf('b')}</th></tr>`;
-    h += `<tr class="acc"><td>Precisão</td><td>${avg(acc.w)}</td><td>${avg(acc.b)}</td></tr>`;
-    for (const k of Object.keys(CLS))
-      h += `<tr><td><span class="bd c-${k}">${CLS[k].sym}</span> ${CLS[k].label}</td><td>${cnt.w[k] || 0}</td><td>${cnt.b[k] || 0}</td></tr>`;
+    h += `<tr class="acc"><td>Precisão</td><td>${f1(acc.w)}</td><td>${f1(acc.b)}</td></tr>`;
+    h += `<tr><td>Classificação da partida (estimada)</td><td>${rating(acc.w)}</td><td>${rating(acc.b)}</td></tr>`;
+    h += MAIN.map((k) => row(k)).join('');
+    h += `<tr class="more"><td colspan="3"><button type="button" id="anMore" class="link" aria-label="Mostrar mais">▾</button></td></tr>`;
+    h += EXTRA.map((k) => row(k, true)).join('');
+    ['Abertura', 'Meio-jogo', 'Final'].forEach((name, p) => {
+      const c = (col) => {
+        const v = avg(ph[col][p]),
+          k = phCls(v);
+        return k ? badge(k) : '–';
+      };
+      h += `<tr class="phase"><td>${name}</td><td>${c('w')}</td><td>${c('b')}</td></tr>`;
+    });
     $('#anSummary').innerHTML = h + '</table>';
+    drawGraph();
     const cell = (k) =>
-      `<td><button type="button" class="mv-btn" data-k="${k + 1}">${moves[k].txt}<span class="bd c-${rates[k].cls}" title="${CLS[rates[k].cls].label}">${CLS[rates[k].cls].sym}</span></button></td>`;
+      `<td><button type="button" class="mv-btn" data-k="${k + 1}">${moves[k].txt}${badge(rates[k].cls)}</button></td>`;
     let t = '';
     for (let k = 0; k < moves.length; k += 2)
       t += `<tr><td class="n">${k / 2 + 1}.</td>${cell(k)}${k + 1 < moves.length ? cell(k + 1) : '<td></td>'}</tr>`;
     $('#anMoves').innerHTML = t;
-    $('#anDetail').textContent = 'Clique num lance (ou use as setas ← →) para ver a posição e o comentário.';
+    $('#anDetail').textContent = 'Clique num lance ou no gráfico (ou use as setas ← →) para ver a posição e o comentário.';
   }
+
+  $('#anSummary').addEventListener('click', (e) => {
+    const b = e.target.closest('#anMore');
+    if (!b) return;
+    const tb = $('#anSummary table');
+    tb.classList.toggle('open');
+    b.textContent = tb.classList.contains('open') ? '▴' : '▾';
+  });
+  $('#anGraph').addEventListener('click', (e) => {
+    if (!an || !an.done) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    gotoReview(Math.round(((e.clientX - r.left) / r.width) * moves.length));
+  });
 
   function gotoReview(i) {
     if (!an || !an.done) return;
@@ -1364,14 +1511,19 @@ if (typeof document === 'undefined') {
     for (const b of document.querySelectorAll('#anMoves .mv-btn'))
       b.classList.toggle('on', +b.dataset.k === review);
     const k = review - 1;
-    if (k < 0) return ($('#anDetail').textContent = 'Posição inicial.');
+    if (k < 0) {
+      drawGraph();
+      return ($('#anDetail').textContent = 'Posição inicial.');
+    }
     const r = an.rates[k],
       e = an.evals[k],
       mm = moves[k];
     let t = `Lance ${Math.floor(k / 2) + 1}${mm.mover === 'b' ? '…' : '.'} ${mm.txt}: ${CLS[r.cls].label} (${CLS[r.cls].sym}).`;
-    if (r.cls !== 'best' && e.move) t += ` O motor preferia ${moveText(positions[k], e.move)}.`;
+    if (!['best', 'sigma', 'awesome'].includes(r.cls) && e.move) t += ` O motor preferia ${moveText(positions[k], e.move)}.`;
     t += ` Avaliação (brancas): ${fmtEval(e.score, positions[k].turn)} → ${fmtEval(an.evals[k + 1].score, positions[k + 1].turn)}.`;
+    if (CLS[r.cls].note) t += ' ' + CLS[r.cls].note;
     $('#anDetail').textContent = t;
+    drawGraph();
     const cur = document.querySelector('#anMoves .mv-btn.on');
     if (cur) cur.scrollIntoView({ block: 'nearest' });
   }
@@ -1523,7 +1675,7 @@ if (typeof document === 'undefined') {
   // Elo -> definições do motor. Usa UCI_Elo quando o motor tem (Elo >= mínimo dele);
   // senão usa "Skill Level" + limite de profundidade (aproximado).
   function sfStrength(elo) {
-    const setup = [];
+    const setup = ['setoption name MultiPV value 1'];
     let depth = null;
     if (sf.hasElo && elo >= sf.eloMin) {
       setup.push('setoption name UCI_LimitStrength value true');
