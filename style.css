@@ -271,5 +271,9 @@ main:has(#analysis:not([hidden])){max-width:1120px}
 img.cap{width:1.15rem;height:1.15rem;margin-right:-.38rem;flex:none;pointer-events:none}
 #promoBtns button .piece{width:100%;height:100%;transform:none;filter:none}
 
-#board{background:url(boards/pixel.svg) center/100% 100% no-repeat}
-.sq.l,.sq.d{background:transparent}
+#board {
+  background: url('./boards/pixel.svg') center/100% 100% no-repeat !important;
+}
+.sq.l, .sq.d {
+  background: transparent !important;
+}
