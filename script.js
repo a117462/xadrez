@@ -11,8 +11,21 @@ const GEOM = {
   Q: '<path class="pc" d="M 9.1 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 14.95 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 20.8 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 26.65 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 32.5 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 9.5 14 L 10.8 8.5 L 14 14 L 16.65 8.5 L 19.3 14 L 22.5 8.5 L 25.7 14 L 28.35 8.5 L 31 14 L 34.2 8.5 L 35.5 14 Z M 15.5 15.5 C 13 21.5 12 26.5 11.5 31 L 33 31 C 32.5 26.5 31.5 21.5 29 15.5 C 26.8 17.2 24.8 17.8 22.5 17.8 C 20.2 17.8 18.2 17.2 15.5 15.5 Z M 12.5 31 L 32.5 31 L 32.5 34 L 12.5 34 Z M 11 34 L 34 34 L 34 36.5 L 11 36.5 Z M 9.5 36.5 L 35.5 36.5 L 35.5 39 L 9.5 39 Z"/><path class="dt" d="M 22.5 20.5 l 0 4.5"/>',
   K: '<path class="pc" d="M 21.4 3.5 L 23.6 3.5 L 23.6 6.8 L 26.9 6.8 L 26.9 9 L 23.6 9 L 23.6 12.3 L 21.4 12.3 L 21.4 9 L 18.1 9 L 18.1 6.8 L 21.4 6.8 Z M 15 13.5 C 12 19.5 11 25.5 11.5 31 L 33.5 31 C 34 25.5 33 19.5 30 13.5 C 27.5 16 25 17 22.5 17 C 20 17 17.5 16 15 13.5 Z M 12.5 31 L 32.5 31 L 32.5 34 L 12.5 34 Z M 11 34 L 34 34 L 34 36.5 L 11 36.5 Z M 9.5 36.5 L 35.5 36.5 L 35.5 39 L 9.5 39 Z"/>',
 };
-const pieceHTML = (c, t) =>
-  `<span class="piece ${c}"><svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[t]}</svg></span>`;
+/* Peças: imagens SVG da pasta PIECE_DIR (12 arquivos: wK wQ wR wB wN wP bK bQ bR bB bN bP .svg).
+   Se a pasta/arquivos não existirem, usa as peças desenhadas por código (GEOM). */
+const PIECE_DIR = 'pieces/pixel/';
+let PIECES_OK = false;
+const piecesReady = new Promise((res) => {
+  const i = new Image();
+  i.onload = () => ((PIECES_OK = true), res());
+  i.onerror = res;
+  i.src = PIECE_DIR + 'wK.svg';
+});
+const pieceArt = (c, t, cls = '') =>
+  PIECES_OK
+    ? `<img${cls ? ` class="${cls}"` : ''} src="${PIECE_DIR}${c}${t}.svg" alt="" draggable="false">`
+    : `<svg${cls ? ` class="${cls}"` : ''} viewBox="0 0 45 45" aria-hidden="true">${GEOM[t]}</svg>`;
+const pieceHTML = (c, t) => `<span class="piece ${c}">${pieceArt(c, t)}</span>`;
 
 function newState() {
   const back = ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'],
@@ -1092,7 +1105,7 @@ if (typeof document === 'undefined') {
         if (p) {
           d.insertAdjacentHTML(
             'beforeend',
-            `<span class="piece ${p[0]}"${lift ? ' style="visibility:hidden"' : ''}><svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[p[1]]}</svg></span>`
+            `<span class="piece ${p[0]}"${lift ? ' style="visibility:hidden"' : ''}>${pieceArt(p[0], p[1])}</span>`
           );
         }
         if (dc === 0) d.insertAdjacentHTML('beforeend', `<span class="coord r">${8 - r}</span>`);
@@ -1114,7 +1127,7 @@ if (typeof document === 'undefined') {
       e.querySelector('.name').textContent = names[col];
       const adv = diff !== 0 && (col === 'w') === (diff > 0) ? ` <b class="adv">+${Math.abs(diff)}</b>` : '';
       e.querySelector('.caps').innerHTML =
-        caps[col].map((x) => `<svg class="cap ${x[0]}" viewBox="0 0 45 45" aria-hidden="true">${GEOM[x[1]]}</svg>`).join('') + adv;
+        caps[col].map((x) => pieceArt(x[0], x[1], `cap ${x[0]}`)).join('') + adv;
       e.classList.toggle('turn', !over && !inReview && st.turn === col);
     }
     $('#moves').innerHTML = history
@@ -1143,7 +1156,7 @@ if (typeof document === 'undefined') {
     g.className = 'anim-ghost';
     const size = $('#board').clientWidth / 8;
     g.style.width = g.style.height = size + 'px';
-    g.innerHTML = `<span class="piece ${a.piece[0]}"><svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[a.piece[1]]}</svg></span>`;
+    g.innerHTML = `<span class="piece ${a.piece[0]}">${pieceArt(a.piece[0], a.piece[1])}</span>`;
     const p0 = squarePos(a.from);
     g.style.left = p0.left;
     g.style.top = p0.top;
@@ -1291,7 +1304,7 @@ if (typeof document === 'undefined') {
     box.innerHTML = '';
     for (const m of ms) {
       const b = document.createElement('button');
-      b.innerHTML = `<svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[m.promo]}</svg>`;
+      b.innerHTML = `<span class="piece ${st.turn}">${pieceArt(st.turn, m.promo)}</span>`;
       b.setAttribute('aria-label', 'Promover a ' + ({ Q: 'dama', R: 'torre', B: 'bispo', N: 'cavalo' }[m.promo] || m.promo));
       b.onclick = () => {
         $('#promo').hidden = true;
@@ -1621,7 +1634,7 @@ if (typeof document === 'undefined') {
     ghost = document.createElement('div');
     ghost.className = 'drag-ghost';
     ghost.style.width = ghost.style.height = size + 'px';
-    ghost.innerHTML = `<span class="piece ${p[0]}"><svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[p[1]]}</svg></span>`;
+    ghost.innerHTML = `<span class="piece ${p[0]}">${pieceArt(p[0], p[1])}</span>`;
     document.body.appendChild(ghost);
     Object.assign(dnd, {
       moved: true,
@@ -2357,6 +2370,7 @@ if (typeof document === 'undefined') {
 
   /* ===== INÍCIO ===== */
   applyCfg();
+  piecesReady.then(() => st && render());
   buildModes();
   syncViewButtons();
   gameElo = cpuElo;
