@@ -1,7 +1,18 @@
 /* ===== LÓGICA DO XADREZ ===== */
-const GL = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };
 const opp = (c) => (c === 'w' ? 'b' : 'w');
 const sqName = (i) => 'abcdefgh'[i % 8] + (8 - (i >> 3));
+
+/* ===== PEÇAS (SVG vetorial, desenho original estilo Staunton) ===== */
+const GEOM = {
+  P: '<path class="pc" d="M19.7 13 a2.8 2.8 0 1 1 5.6 0 a2.8 2.8 0 1 1 -5.6 0 Z" transform="translate(0 -6.2) scale(1.96)" opacity="0"/><path class="pc" d="M17 13.5 a5.5 5.5 0 1 1 11 0 a5.5 5.5 0 1 1 -11 0 Z M 17.5 18 L 27.5 18 L 31 33 L 14 33 Z M 13.5 33 h 18 v 3 h -18 Z M 11.5 36 h 22 v 3 h -22 Z"/>',
+  R: '<path class="pc" d="M 11.5 15 L 11.5 9.5 L 15.7 9.5 L 15.7 12.5 L 20 12.5 L 20 9.5 L 24.5 9.5 L 24.5 12.5 L 28.8 12.5 L 28.8 9.5 L 33 9.5 L 33 15 Z M 10.5 15 L 34.5 15 L 31.5 18 L 13.5 18 Z M 13.5 18 L 31.5 18 L 31.5 30 L 13.5 30 Z M 12 30 L 33 30 L 33 33 L 12 33 Z M 10.5 33 L 34.5 33 L 34.5 36 L 10.5 36 Z M 9 36 L 36 36 L 36 39 L 9 39 Z"/>',
+  N: '<path class="pc" d="M 34 36 C 34 33.5 32.5 31.5 30.5 30 C 32 27 32.5 23.5 31.5 20 C 31 17 29 14 26 12.5 L 24.5 8.5 L 21.5 11 L 17.5 9.5 C 13.5 11 11.5 14 11.5 17.5 C 11.5 19.5 12.5 20.5 13.5 21.5 C 12.5 23.5 12 26 13.5 28.5 C 12 30.5 11 33 11 36 Z M 15.3 15.5 a 1.2 1.2 0 1 1 2.4 0 a 1.2 1.2 0 1 1 -2.4 0 Z M 11 36 L 34 36 L 34 39 L 11 39 Z"/><path class="dt" d="M 28 14 C 30 17 30.5 21 29 24.5 M 13 18.6 l 1.3 .9"/>',
+  B: '<path class="pc" d="M 19.7 7.5 a 2.8 2.8 0 1 1 5.6 0 a 2.8 2.8 0 1 1 -5.6 0 Z M 22.5 11 C 15.5 15.5 13.5 22 15 29 L 30 29 C 31.5 22 29.5 15.5 22.5 11 Z M 14.5 29 L 30.5 29 L 32.5 32.5 L 12.5 32.5 Z M 12.5 32.5 L 32.5 32.5 L 32.5 36 L 12.5 36 Z M 11 36 L 34 36 L 34 39 L 11 39 Z"/><path class="dt" d="M 25.5 15.5 L 20.5 23.5"/>',
+  Q: '<path class="pc" d="M 9.1 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 14.95 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 20.8 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 26.65 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 32.5 7.3 a 1.7 1.7 0 1 1 3.4 0 a 1.7 1.7 0 1 1 -3.4 0 Z M 9.5 14 L 10.8 8.5 L 14 14 L 16.65 8.5 L 19.3 14 L 22.5 8.5 L 25.7 14 L 28.35 8.5 L 31 14 L 34.2 8.5 L 35.5 14 Z M 15.5 15.5 C 13 21.5 12 26.5 11.5 31 L 33 31 C 32.5 26.5 31.5 21.5 29 15.5 C 26.8 17.2 24.8 17.8 22.5 17.8 C 20.2 17.8 18.2 17.2 15.5 15.5 Z M 12.5 31 L 32.5 31 L 32.5 34 L 12.5 34 Z M 11 34 L 34 34 L 34 36.5 L 11 36.5 Z M 9.5 36.5 L 35.5 36.5 L 35.5 39 L 9.5 39 Z"/><path class="dt" d="M 22.5 20.5 l 0 4.5"/>',
+  K: '<path class="pc" d="M 21.4 3.5 L 23.6 3.5 L 23.6 6.8 L 26.9 6.8 L 26.9 9 L 23.6 9 L 23.6 12.3 L 21.4 12.3 L 21.4 9 L 18.1 9 L 18.1 6.8 L 21.4 6.8 Z M 15 13.5 C 12 19.5 11 25.5 11.5 31 L 33.5 31 C 34 25.5 33 19.5 30 13.5 C 27.5 16 25 17 22.5 17 C 20 17 17.5 16 15 13.5 Z M 12.5 31 L 32.5 31 L 32.5 34 L 12.5 34 Z M 11 34 L 34 34 L 34 36.5 L 11 36.5 Z M 9.5 36.5 L 35.5 36.5 L 35.5 39 L 9.5 39 Z"/>',
+};
+const pieceHTML = (c, t) =>
+  `<span class="piece ${c}"><svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[t]}</svg></span>`;
 
 function newState() {
   const back = ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'],
@@ -769,12 +780,15 @@ if (typeof document === 'undefined') {
   };
 
   /* ===== MODOS DE JOGO (minutos + incremento em segundos; min 0 = sem relógio) ===== */
+  // Inclui bullet/blitz com incremento (o tempo devolvido após cada lance).
   const MODES = [
     [1, 0],
+    [1, 1],
     [2, 1],
     [3, 0],
     [3, 2],
     [5, 0],
+    [5, 3],
     [10, 0],
     [15, 10],
     [30, 0],
@@ -828,6 +842,8 @@ if (typeof document === 'undefined') {
     review = null, // índice da posição mostrada na revisão (null = jogo normal)
     an = null,
     anToken = 0;
+  let repCounts = new Map(), // repetição de posições (lei da tríplice repetição)
+    lastResult = '*';
   const ANALYSIS_DEPTH = 4;
 
   const effectiveFlip = () => (me === 'b') !== manualFlip;
@@ -932,6 +948,7 @@ if (typeof document === 'undefined') {
         : mode === 'cpu'
         ? 'O tempo do Stockfish acabou.'
         : 'O tempo do seu amigo acabou.';
+    // Lei da FIDE: se o adversário não puder dar mate por NENHUMA sequência de lances legais, é empate.
     if (!canMate(st.board, winner))
       finish('Empate', who + ' Mas o adversário não tem material para dar mate.', null);
     else finish('Tempo esgotado', who, winner);
@@ -954,6 +971,7 @@ if (typeof document === 'undefined') {
     cancelDrag();
     stopAnim();
     cpuToken++;
+    lastResult = winner === null ? '1/2-1/2' : winner === 'w' ? '1-0' : '0-1';
     $('#promo').hidden = true;
     $('#btnAnalyze').hidden = !moves.length;
     $('#btnOverAnalyze').hidden = !moves.length;
@@ -972,22 +990,49 @@ if (typeof document === 'undefined') {
   }
 
   /* ===== TABULEIRO ===== */
+  // SAN oficial: Nf3, exd5, O-O, Qxf7+ ... (com desambiguação e sufixo de xeque/xeque-mate)
   function moveText(s, m) {
+    const n = apply(s, m);
+    const suf = !inCheck(n, n.turn) ? '' : legalMoves(n).length ? '+' : '#';
+    if (m.castle) return (m.castle === 'K' ? 'O-O' : 'O-O-O') + suf;
     const piece = s.board[m.from],
       cap = m.ep || s.board[m.to];
-    return m.castle
-      ? m.castle === 'K'
-        ? 'O-O'
-        : 'O-O-O'
-      : (piece[1] === 'P' ? '' : piece[1]) +
-          sqName(m.from) +
-          (cap ? 'x' : '-') +
-          sqName(m.to) +
-          (m.promo ? '=' + m.promo : '');
+    if (piece[1] === 'P') {
+      let t = cap ? sqName(m.from)[0] + 'x' + sqName(m.to) : sqName(m.to);
+      if (m.promo) t += '=' + m.promo;
+      return t + suf;
+    }
+    // desambiguação: outra peça da mesma espécie também pode ir para m.to?
+    const others = legalMoves(s).filter(
+      (x) => x.from !== m.from && x.to === m.to && s.board[x.from][1] === piece[1]
+    );
+    let dis = '';
+    if (others.length) {
+      const sameFile = others.some((x) => (x.from & 7) === (m.from & 7));
+      const sameRank = others.some((x) => (x.from >> 3) === (m.from >> 3));
+      if (!sameFile) dis = sqName(m.from)[0];
+      else if (!sameRank) dis = sqName(m.from)[1];
+      else dis = sqName(m.from);
+    }
+    return piece[1] + dis + (cap ? 'x' : '') + sqName(m.to) + suf;
   }
 
   const MATV = { P: 1, N: 3, B: 3, R: 5, Q: 9 };
   const matOf = (c) => caps[c].reduce((s, p) => s + MATV[p[1]], 0);
+
+  // Chave da posição para a lei da repetição: peças, vez, direitos de roque e
+  // captura en passant possível (a FIDE só conta o ep se for jogável).
+  function repKey(s) {
+    let k =
+      s.board.map((p) => p || '.').join('') +
+      s.turn +
+      (s.castle.wK ? 'K' : '') +
+      (s.castle.wQ ? 'Q' : '') +
+      (s.castle.bK ? 'k' : '') +
+      (s.castle.bQ ? 'q' : '');
+    if (s.ep !== null && pseudo(s).some((m) => m.ep)) k += 'e' + s.ep;
+    return k;
+  }
 
   function squarePos(i) {
     let r = i >> 3,
@@ -1044,10 +1089,12 @@ if (typeof document === 'undefined') {
         if (t) d.classList.add('mv', ...(p || t.ep ? ['cap'] : []));
         d.dataset.i = i;
         const lift = dnd && dnd.moved && i === dnd.from;
-        if (p)
-          d.innerHTML = `<span class="piece ${p[0]}" style="${
-            lift ? 'visibility:hidden' : ''
-          }">${GL[p[1]]}</span>`;
+        if (p) {
+          d.insertAdjacentHTML(
+            'beforeend',
+            `<span class="piece ${p[0]}"${lift ? ' style="visibility:hidden"' : ''}><svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[p[1]]}</svg></span>`
+          );
+        }
         if (dc === 0) d.insertAdjacentHTML('beforeend', `<span class="coord r">${8 - r}</span>`);
         if (dr === 7)
           d.insertAdjacentHTML('beforeend', `<span class="coord c">${'abcdefgh'[c]}</span>`);
@@ -1066,7 +1113,8 @@ if (typeof document === 'undefined') {
       const e = $(el);
       e.querySelector('.name').textContent = names[col];
       const adv = diff !== 0 && (col === 'w') === (diff > 0) ? ` <b class="adv">+${Math.abs(diff)}</b>` : '';
-      e.querySelector('.caps').innerHTML = caps[col].map((x) => GL[x[1]]).join('') + adv;
+      e.querySelector('.caps').innerHTML =
+        caps[col].map((x) => `<svg class="cap ${x[0]}" viewBox="0 0 45 45" aria-hidden="true">${GEOM[x[1]]}</svg>`).join('') + adv;
       e.classList.toggle('turn', !over && !inReview && st.turn === col);
     }
     $('#moves').innerHTML = history
@@ -1095,8 +1143,7 @@ if (typeof document === 'undefined') {
     g.className = 'anim-ghost';
     const size = $('#board').clientWidth / 8;
     g.style.width = g.style.height = size + 'px';
-    g.style.fontSize = size * 0.8 + 'px';
-    g.innerHTML = `<span class="piece ${a.piece[0]}">${GL[a.piece[1]]}</span>`;
+    g.innerHTML = `<span class="piece ${a.piece[0]}"><svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[a.piece[1]]}</svg></span>`;
     const p0 = squarePos(a.from);
     g.style.left = p0.left;
     g.style.top = p0.top;
@@ -1133,8 +1180,8 @@ if (typeof document === 'undefined') {
         );
     } else if (insufficient(st.board)) {
       finish(
-        'Empate por material insuficiente',
-        'Nenhum dos lados tem peças suficientes para dar mate.',
+        'Empate por posição morta',
+        'Nenhuma sequência de lances legais leva ao mate (material insuficiente).',
         null
       );
     } else if (st.half >= 100) {
@@ -1157,8 +1204,9 @@ if (typeof document === 'undefined') {
     }
   }
 
-  /* ===== PRÉ-MOVES (só online, quando não é a sua vez) ===== */
-  const premoving = () => mode === 'net' && !over && !!st && st.turn !== me && premoveOn;
+  /* ===== PRÉ-MOVES (online e contra o Stockfish: quando não é a sua vez) ===== */
+  const premoving = () =>
+    (mode === 'net' || mode === 'cpu') && !over && !!st && st.turn !== me && premoveOn;
 
   // posição como ficaria depois dos pré-moves já na fila (o adversário não é considerado)
   function projected() {
@@ -1191,7 +1239,7 @@ if (typeof document === 'undefined') {
   }
 
   function runPremove() {
-    if (over || mode !== 'net' || st.turn !== me || !premoves.length) return;
+    if (over || (mode !== 'net' && mode !== 'cpu') || st.turn !== me || !premoves.length) return;
     const pm = premoves.shift();
     const m = legalMoves(st).find(
       (x) => x.from === pm.from && x.to === pm.to && (x.promo || null) === pm.promo
@@ -1243,7 +1291,8 @@ if (typeof document === 'undefined') {
     box.innerHTML = '';
     for (const m of ms) {
       const b = document.createElement('button');
-      b.textContent = GL[m.promo] + '\uFE0E';
+      b.innerHTML = `<svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[m.promo]}</svg>`;
+      b.setAttribute('aria-label', 'Promover a ' + ({ Q: 'dama', R: 'torre', B: 'bispo', N: 'cavalo' }[m.promo] || m.promo));
       b.onclick = () => {
         $('#promo').hidden = true;
         commit(m);
@@ -1284,6 +1333,18 @@ if (typeof document === 'undefined') {
     targets = [];
     // as setas/círculos do tabuleiro ficam guardados durante a partida
     updateStatus();
+    // Lei da tríplice repetição: a mesma posição 3 vezes = empate (como nos sites).
+    if (!over) {
+      const rk = repKey(st),
+        c = (repCounts.get(rk) || 0) + 1;
+      repCounts.set(rk, c);
+      if (c >= 3)
+        finish(
+          'Empate por repetição',
+          'A mesma posição (peças, vez, roques e en passant possível) ocorreu pela terceira vez.',
+          null
+        );
+    }
     if (!over && inCheck(st, st.turn)) setTimeout(() => Sfx.check(), 110);
     render();
     if (!remote && mode === 'net' && conn && conn.open)
@@ -1319,10 +1380,12 @@ if (typeof document === 'undefined') {
     review = null;
     an = null;
     anToken++;
+    repCounts = new Map([[repKey(st), 1]]);
+    lastResult = '*';
     $('#analysis').hidden = true;
     $('#btnAnalyze').hidden = true;
-    $('#btnPre').hidden = mode !== 'net';
-    $('#btnPreClear').hidden = mode !== 'net';
+    $('#btnPre').hidden = !(mode === 'net' || mode === 'cpu');
+    $('#btnPreClear').hidden = $('#btnPre').hidden;
     $('#cpuBar').hidden = mode !== 'cpu';
     cpuToken++;
     if (mode === 'cpu') {
@@ -1353,6 +1416,117 @@ if (typeof document === 'undefined') {
         : 'Seu amigo desistiu da partida.';
     finish('Desistência', detail, opp(loser));
   }
+
+  /* ===== PGN: copiar / baixar ===== */
+  function pgnText() {
+    const d = new Date(),
+      date = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(
+        d.getDate()
+      ).padStart(2, '0')}`;
+    const names =
+      mode === 'local'
+        ? { w: 'Brancas', b: 'Pretas' }
+        : { [me]: 'Voce', [opp(me)]: mode === 'cpu' ? `Stockfish (${cpuElo})` : 'Amigo' };
+    const hdr = [
+      '[Event "Partida casual"]',
+      '[Site "Xadrez no navegador"]',
+      `[Date "${date}"]`,
+      '[Round "-"]',
+      `[White "${names.w}"]`,
+      `[Black "${names.b}"]`,
+      `[Result "${lastResult}"]`,
+      `[TimeControl "${tc ? tc.min * 60 + '+' + tc.inc : '-'}"]`,
+      '',
+    ];
+    const body = [];
+    for (let k = 0; k < moves.length; k += 2)
+      body.push(`${k / 2 + 1}. ${moves[k].txt}${moves[k + 1] ? ' ' + moves[k + 1].txt : ''}`);
+    body.push(lastResult);
+    return hdr.join('\n') + body.join(' ');
+  }
+
+  async function copyPGN() {
+    try {
+      await navigator.clipboard.writeText(pgnText());
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function downloadPGN() {
+    const blob = new Blob([pgnText()], { type: 'application/x-chess-pgn' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'partida-xadrez.pgn';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  function newGame() {
+    if (!over && !confirm('Começar nova partida?')) return;
+    if (mode === 'net') {
+      if (!conn || !conn.open) {
+        $('#over').hidden = true;
+        setStatus('O amigo não está mais conectado. Volte ao menu para criar outra sala.');
+        return;
+      }
+      conn.send({ t: 'new' });
+      startGame('net', opp(me), tc);
+    } else if (mode === 'cpu') startGame('cpu', me, tc);
+    else startGame('local', 'w', tc);
+  }
+
+  $('#btnNew').onclick = newGame;
+  $('#btnOverNew').onclick = newGame;
+  $('#btnOverClose').onclick = () => {
+    $('#over').hidden = true;
+  };
+
+  for (const b of document.querySelectorAll('.menu-btn'))
+    b.onclick = () => {
+      if (!over && !confirm('Voltar ao menu? A partida atual será perdida.')) return;
+      location.reload();
+    };
+
+  /* ===== CONTROLES VISUAIS: ajustes, girar, som, coordenadas ===== */
+  function syncViewButtons() {
+    $('#btnSound').textContent = Sfx.on ? '🔊 Som: ON' : '🔇 Som: OFF';
+    $('#btnCoords').textContent = coordsOn ? 'Coordenadas: ON' : 'Coordenadas: OFF';
+    document.body.classList.toggle('no-coords', !coordsOn);
+  }
+  $('#btnSettings').onclick = () => {
+    const p = $('#settingsPanel');
+    p.hidden = !p.hidden;
+    $('#btnSettings').setAttribute('aria-expanded', String(!p.hidden));
+    $('#btnSettings').classList.toggle('on', !p.hidden);
+  };
+  $('#btnFlip').onclick = () => {
+    manualFlip = !manualFlip;
+    render();
+  };
+  $('#btnSound').onclick = () => {
+    Sfx.on = !Sfx.on;
+    if (Sfx.on) Sfx.move();
+    saveCfg();
+    syncViewButtons();
+  };
+  $('#btnCoords').onclick = () => {
+    coordsOn = !coordsOn;
+    saveCfg();
+    syncViewButtons();
+  };
+
+  const pgnFeedback = async (btn) => {
+    if (await copyPGN()) {
+      const t = btn.textContent;
+      btn.textContent = '✓ Copiado!';
+      setTimeout(() => (btn.textContent = t), 1500);
+    }
+  };
+  for (const id of ['#btnPGNCopy', '#btnOverPGN'])
+    $(id).onclick = (e) => pgnFeedback(e.currentTarget);
+  for (const id of ['#btnPGNDl', '#btnOverPGNDl']) $(id).onclick = downloadPGN;
 
   /* ===== SETAS E CÍRCULOS (só visuais; não afetam a partida) ===== */
   const MARK_COLORS = { normal: '#ff9a1f', shift: '#e5484d', alt: '#3b82f6' };
@@ -1448,8 +1622,7 @@ if (typeof document === 'undefined') {
     ghost = document.createElement('div');
     ghost.className = 'drag-ghost';
     ghost.style.width = ghost.style.height = size + 'px';
-    ghost.style.fontSize = size * 0.78 + 'px';
-    ghost.innerHTML = `<span class="piece ${p[0]}">${GL[p[1]]}</span>`;
+    ghost.innerHTML = `<span class="piece ${p[0]}"><svg viewBox="0 0 45 45" aria-hidden="true">${GEOM[p[1]]}</svg></span>`;
     document.body.appendChild(ghost);
     Object.assign(dnd, {
       moved: true,
@@ -1543,7 +1716,11 @@ if (typeof document === 'undefined') {
       const i = sqAt(e);
       if (i < 0) return;
       dnd = { from: i, id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, click: true };
-      if (!over && review === null && (mode === 'net' ? st.turn === me || premoveOn : mode === 'cpu' ? st.turn === me : true)) {
+      if (
+        !over &&
+        review === null &&
+        ((mode === 'net' || mode === 'cpu') ? st.turn === me || premoveOn : true)
+      ) {
         const S = premoving() ? projected() : st;
         const p = S.board[i];
         if (p && p[0] === S.turn) {
@@ -1735,54 +1912,6 @@ if (typeof document === 'undefined') {
       if (conn && conn.open) conn.send({ t: 'resign' });
       endByResign(me);
     } else endByResign(mode === 'cpu' ? me : st.turn);
-  };
-
-  function newGame() {
-    if (!over && !confirm('Começar nova partida?')) return;
-    if (mode === 'net') {
-      if (!conn || !conn.open) {
-        $('#over').hidden = true;
-        setStatus('O amigo não está mais conectado. Volte ao menu para criar outra sala.');
-        return;
-      }
-      conn.send({ t: 'new' });
-      startGame('net', opp(me), tc);
-    } else if (mode === 'cpu') startGame('cpu', me, tc);
-    else startGame('local', 'w', tc);
-  }
-
-  $('#btnNew').onclick = newGame;
-  $('#btnOverNew').onclick = newGame;
-  $('#btnOverClose').onclick = () => {
-    $('#over').hidden = true;
-  };
-
-  for (const b of document.querySelectorAll('.menu-btn'))
-    b.onclick = () => {
-      if (!over && !confirm('Voltar ao menu? A partida atual será perdida.')) return;
-      location.reload();
-    };
-
-  /* ===== CONTROLES VISUAIS: girar, som, coordenadas ===== */
-  function syncViewButtons() {
-    $('#btnSound').textContent = Sfx.on ? '🔊 Som: ON' : '🔇 Som: OFF';
-    $('#btnCoords').textContent = coordsOn ? 'Coordenadas: ON' : 'Coordenadas: OFF';
-    document.body.classList.toggle('no-coords', !coordsOn);
-  }
-  $('#btnFlip').onclick = () => {
-    manualFlip = !manualFlip;
-    render();
-  };
-  $('#btnSound').onclick = () => {
-    Sfx.on = !Sfx.on;
-    if (Sfx.on) Sfx.move();
-    saveCfg();
-    syncViewButtons();
-  };
-  $('#btnCoords').onclick = () => {
-    coordsOn = !coordsOn;
-    saveCfg();
-    syncViewButtons();
   };
 
   /* ===== ANÁLISE DA PARTIDA ===== */
