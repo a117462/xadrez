@@ -1105,7 +1105,7 @@ if (typeof document === 'undefined') {
       names =
         mode === 'local'
           ? { w: 'Brancas', b: 'Pretas' }
-          : { [me]: 'Você', [opp(me)]: mode === 'cpu' ? `Stockfish (${cpuElo})` : 'Amigo' };
+          : { [me]: 'Você', [opp(me)]: mode === 'cpu' ? `Stockfish (${gameElo})` : 'Amigo' };
     for (const [el, col] of [
       ['#topPlayer', top],
       ['#botPlayer', me],
@@ -1386,7 +1386,6 @@ if (typeof document === 'undefined') {
     $('#btnAnalyze').hidden = true;
     $('#btnPre').hidden = !(mode === 'net' || mode === 'cpu');
     $('#btnPreClear').hidden = $('#btnPre').hidden;
-    $('#cpuBar').hidden = mode !== 'cpu';
     cpuToken++;
     if (mode === 'cpu') {
       sfStop();
@@ -1426,7 +1425,7 @@ if (typeof document === 'undefined') {
     const names =
       mode === 'local'
         ? { w: 'Brancas', b: 'Pretas' }
-        : { [me]: 'Voce', [opp(me)]: mode === 'cpu' ? `Stockfish (${cpuElo})` : 'Amigo' };
+        : { [me]: 'Voce', [opp(me)]: mode === 'cpu' ? `Stockfish (${gameElo})` : 'Amigo' };
     const hdr = [
       '[Event "Partida casual"]',
       '[Site "Xadrez no navegador"]',
@@ -2174,9 +2173,14 @@ if (typeof document === 'undefined') {
     'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js',
   ];
   const ELO_MIN = 800;
+  // Elo escolhido no menu (slider). gameElo é o Elo da partida em curso: fixado ao começar e não muda até a partida acabar.
   let cpuElo = 1500,
+    gameElo = 1500,
     cpuSide = 'w',
     cpuToken = 0;
+  // Tempo "humano" que o Stockfish demora para jogar, sorteado a cada lance (milissegundos).
+  const CPU_DELAY_MIN = 4000,
+    CPU_DELAY_MAX = 9000;
   const sf = { w: null, ready: null, hasElo: false, eloMin: 1320, eloMax: 3190, hasSkill: false, listeners: new Set() };
   let sfChain = Promise.resolve();
 
@@ -2300,14 +2304,17 @@ if (typeof document === 'undefined') {
     try {
       await sfLoad();
       if (token !== cpuToken) return;
-      const { setup, depth, mt } = sfStrength(cpuElo);
+      const { setup, depth, mt } = sfStrength(gameElo);
       let ms = mt;
       if (tc) ms = Math.max(50, Math.min(ms, Math.floor(clock[st.turn] / 25)));
       const list = moves.map((x) => sqName(x.m.from) + sqName(x.m.to) + (x.m.promo ? x.m.promo.toLowerCase() : ''));
       const pos = 'position startpos' + (list.length ? ' moves ' + list.join(' ') : '');
       const t0 = performance.now();
       uci = await sfSearch(setup, pos, `go ${depth ? 'depth ' + depth + ' ' : ''}movetime ${ms}`);
-      const wait = 250 - (performance.now() - t0); // evita lances "instantâneos"
+      // simula uma pessoa: espera um tempo aleatório entre 4 e 9 s (contado desde que começou a pensar)
+      let delay = CPU_DELAY_MIN + Math.random() * (CPU_DELAY_MAX - CPU_DELAY_MIN);
+      if (tc) delay = Math.min(delay, Math.max(300, clock[st.turn] / 6)); // com relógio curto, não deixa cair a bandeira
+      const wait = delay - (performance.now() - t0);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     } catch (e) {
       if (token === cpuToken) setStatus('Não foi possível carregar o Stockfish (veja se stockfish.js está na pasta do site).');
@@ -2325,13 +2332,11 @@ if (typeof document === 'undefined') {
 
   function updateEloUI(v) {
     cpuElo = +v;
-    for (const s of ['#eloRange', '#eloRange2']) $(s).value = cpuElo;
-    for (const s of ['#eloOut', '#eloOut2']) $(s).textContent = cpuElo;
+    $('#eloRange').value = cpuElo;
+    $('#eloOut').textContent = cpuElo;
     saveCfg();
-    if (mode === 'cpu') render();
   }
   $('#eloRange').oninput = (e) => updateEloUI(e.target.value);
-  $('#eloRange2').oninput = (e) => updateEloUI(e.target.value);
 
   $('#btnCpu').onclick = async () => {
     const pick = $('#cpuColor').value;
@@ -2341,6 +2346,7 @@ if (typeof document === 'undefined') {
     try {
       await sfLoad();
       $('#cpuMsg').textContent = '';
+      gameElo = cpuElo; // trava o Elo desta partida
       startGame('cpu', cpuSide, tcOf(chosen));
     } catch (e) {
       $('#cpuMsg').textContent =
@@ -2353,6 +2359,7 @@ if (typeof document === 'undefined') {
   applyCfg();
   buildModes();
   syncViewButtons();
-  for (const s of ['#eloRange', '#eloRange2']) $(s).value = cpuElo;
-  for (const s of ['#eloOut', '#eloOut2']) $(s).textContent = cpuElo;
+  gameElo = cpuElo;
+  $('#eloRange').value = cpuElo;
+  $('#eloOut').textContent = cpuElo;
 }
