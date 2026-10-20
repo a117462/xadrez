@@ -265,3 +265,8 @@ main:has(#analysis:not([hidden])){max-width:1120px}
   .player .name{font-size:.9rem}
   .caps{max-width:60%}
 }
+
+/* peças como imagens (pasta pieces/pixel) */
+.piece img{width:100%;height:100%;display:block;pointer-events:none;user-select:none;-webkit-user-drag:none}
+img.cap{width:1.15rem;height:1.15rem;margin-right:-.38rem;flex:none;pointer-events:none}
+#promoBtns button .piece{width:100%;height:100%;transform:none;filter:none}
