@@ -3,8 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#121212">
 <title>Xadrez online</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♞</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -17,68 +21,93 @@
       <header class="hero">
         <div class="hero-logo" aria-hidden="true">♞</div>
         <h1 class="hero-title">Xadrez</h1>
-        <p class="hero-sub">Jogue com amigos, enfrente o Stockfish ou analise suas partidas.</p>
+        <p class="hero-sub">Jogue com amigos, enfrente o Stockfish ou analise as suas partidas.</p>
       </header>
 
       <details class="rhythm">
-        <summary><span>⏱ Ritmo da partida</span><b id="rhythmNow">Sem relógio</b></summary>
+        <summary>
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span>Ritmo da partida</span>
+          <b id="rhythmNow">Sem relógio</b>
+        </summary>
         <div id="modes"></div>
         <p class="info small">Vale para quem cria a sala, para o jogo contra o computador e no mesmo aparelho. Quem entra numa sala usa o ritmo da sala.</p>
       </details>
 
-      <nav class="menu-grid" aria-label="Menu principal">
+      <nav class="menu-grid" aria-label="Modos de jogo">
         <button type="button" class="menu-card" data-go="panelCpu">
-          <span class="mc-icon">♚</span>
+          <span class="mc-icon">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>
+          </span>
           <span class="mc-text"><span class="mc-title">Contra o computador</span><span class="mc-desc">Stockfish com Elo de 800 a 3000</span></span>
-          <span class="mc-go" aria-hidden="true">›</span>
+          <svg class="mc-go ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
         </button>
         <button type="button" class="menu-card" data-go="panelOnline">
-          <span class="mc-icon">🌐</span>
+          <span class="mc-icon">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>
+          </span>
           <span class="mc-text"><span class="mc-title">Jogar online</span><span class="mc-desc">Crie uma sala e envie o código a um amigo</span></span>
-          <span class="mc-go" aria-hidden="true">›</span>
+          <svg class="mc-go ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
         </button>
         <button type="button" class="menu-card" id="btnLocal">
-          <span class="mc-icon">👥</span>
+          <span class="mc-icon">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.2c2.6.3 4.5 2.5 4.5 5.3"/></svg>
+          </span>
           <span class="mc-text"><span class="mc-title">Mesmo aparelho</span><span class="mc-desc">Dois jogadores, um só tabuleiro</span></span>
-          <span class="mc-go" aria-hidden="true">›</span>
+          <svg class="mc-go ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
         </button>
         <button type="button" class="menu-card accent" data-go="panelPgn">
-          <span class="mc-icon">📥</span>
-          <span class="mc-text"><span class="mc-title">Importar PGN e analisar</span><span class="mc-desc">Cole ou envie uma partida e veja a análise completa</span></span>
-          <span class="mc-go" aria-hidden="true">›</span>
+          <span class="mc-icon">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg>
+          </span>
+          <span class="mc-text"><span class="mc-title">Importar PGN e analisar</span><span class="mc-desc">Cole ou envie uma partida e veja a análise completa do Stockfish</span></span>
+          <svg class="mc-go ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
         </button>
       </nav>
-      <p class="menu-foot">O Stockfish roda direto no seu navegador. Sem cadastro.</p>
+      <p class="menu-foot">O Stockfish corre diretamente no seu navegador. Sem registo.</p>
     </div>
 
     <!-- ===== CONTRA O COMPUTADOR ===== -->
     <div id="panelCpu" class="box menu-panel" hidden>
       <div class="panel-head"><button type="button" class="ghost back" data-back aria-label="Voltar ao menu">‹ Voltar</button><h2>Contra o computador</h2></div>
-      <label class="elo-label" for="eloRange">Elo do Stockfish: <b id="eloOut">1500</b></label>
-      <input type="range" id="eloRange" min="800" max="3000" step="50" value="1500">
-      <p class="info small">O Elo fica fixo durante a partida. Para mudar, volte ao menu e comece outra.</p>
-      <div class="row">
-        <select id="cpuColor" aria-label="Cor">
-          <option value="w">Jogar de brancas</option>
+
+      <div class="field">
+        <label class="elo-label" for="eloRange"><span>Elo do Stockfish</span><b id="eloOut">1500</b></label>
+        <input type="range" id="eloRange" min="800" max="3000" step="50" value="1500">
+        <div class="elo-scale" aria-hidden="true"><span>800</span><span>3000</span></div>
+        <p class="info small">O Elo fica fixo durante a partida. Para mudar, volte ao menu e comece outra.</p>
+      </div>
+
+      <div class="field">
+        <span class="field-label" id="colorLabel">Jogar com</span>
+        <div class="seg-group" role="group" aria-labelledby="colorLabel">
+          <button type="button" class="seg" data-color="w" aria-pressed="true"><span class="dot w"></span>Brancas</button>
+          <button type="button" class="seg" data-color="b" aria-pressed="false"><span class="dot b"></span>Pretas</button>
+          <button type="button" class="seg" data-color="r" aria-pressed="false"><span class="dot r"></span>Aleatório</button>
+        </div>
+        <select id="cpuColor" aria-label="Cor" hidden>
+          <option value="w" selected>Jogar de brancas</option>
           <option value="b">Jogar de pretas</option>
           <option value="r">Cor aleatória</option>
         </select>
-        <button id="btnCpu">Começar partida</button>
       </div>
-      <p id="cpuMsg" class="info small"></p>
+
+      <p class="info small">O ritmo da partida escolhe-se no menu inicial, na faixa “Ritmo da partida”.</p>
+      <button id="btnCpu" class="wide-btn">Começar partida</button>
+      <p id="cpuMsg" class="info small" role="status"></p>
     </div>
 
     <!-- ===== ONLINE ===== -->
     <div id="panelOnline" class="box menu-panel" hidden>
       <div class="panel-head"><button type="button" class="ghost back" data-back aria-label="Voltar ao menu">‹ Voltar</button><h2>Jogar online</h2></div>
-      <p>Um cria a sala e envia o código. O outro digita o código e entra.</p>
-      <button id="btnCreate">Criar sala</button>
+      <p class="lead">Um jogador cria a sala e envia o código. O outro escreve o código e entra.</p>
+      <button id="btnCreate" class="wide-btn">Criar sala</button>
       <p id="roomInfo" class="info"></p>
       <div class="row" id="copyRow" hidden>
         <button id="btnCopy" class="ghost">📋 Copiar código</button>
       </div>
       <hr>
-      <div class="row">
+      <div class="row join-row">
         <input id="codeInput" placeholder="Código da sala" maxlength="5" autocomplete="off">
         <button id="btnJoin">Entrar</button>
       </div>
@@ -88,9 +117,9 @@
     <!-- ===== IMPORTAR PGN ===== -->
     <div id="panelPgn" class="box menu-panel wide" hidden>
       <div class="panel-head"><button type="button" class="ghost back" data-back aria-label="Voltar ao menu">‹ Voltar</button><h2>Importar PGN e analisar</h2></div>
-      <p class="info small">Cole o PGN de uma partida (Lichess, chess.com, etc.) ou escolha um arquivo <b>.pgn</b>. O Stockfish analisa cada lance e classifica a partida.</p>
+      <p class="info small">Cole o PGN de uma partida (Lichess, chess.com, etc.) ou escolha um ficheiro <b>.pgn</b>. O Stockfish analisa cada lance e classifica a partida.</p>
       <textarea id="pgnText" rows="8" spellcheck="false" placeholder='[Event "Minha partida"]&#10;[White "Eu"]&#10;[Black "Amigo"]&#10;&#10;1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 ...'></textarea>
-      <div class="row">
+      <div class="row tools">
         <label class="file-btn" for="pgnFile">📂 Escolher arquivo</label>
         <input type="file" id="pgnFile" accept=".pgn,.txt,text/plain" hidden>
         <button type="button" id="btnPgnPaste" class="ghost">📋 Colar</button>
@@ -168,8 +197,10 @@
         <p class="info small">Parte clara: vantagem das brancas. Clique no gráfico para ir a um lance.</p>
         <div id="anSummary"></div>
         <div class="row nav">
+          <button id="anFirst" class="ghost" aria-label="Primeiro lance">«</button>
           <button id="anPrev" class="ghost" aria-label="Lance anterior">‹</button>
           <button id="anNext" class="ghost" aria-label="Próximo lance">›</button>
+          <button id="anLast" class="ghost" aria-label="Último lance">»</button>
         </div>
         <div id="anDetail"></div>
         <div class="an-scroll"><table class="an-moves"><tbody id="anMoves"></tbody></table></div>
@@ -200,5 +231,39 @@
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="script.js"></script>
+<script>
+/* Extras só de interface (não mexem na lógica do script.js):
+   1) seletor de cor em botões -> preenche o <select id="cpuColor"> que o script.js lê;
+   2) barra preenchida do slider de Elo;
+   3) botões « e » da análise -> usam o clique no gráfico (ir ao primeiro / último lance). */
+(function () {
+  var sel = document.getElementById('cpuColor');
+  var segs = document.querySelectorAll('[data-color]');
+  segs.forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (sel) sel.value = b.dataset.color;
+      segs.forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+    });
+  });
+
+  var elo = document.getElementById('eloRange');
+  function fill() {
+    if (!elo) return;
+    var p = ((elo.value - elo.min) / (elo.max - elo.min)) * 100;
+    elo.style.setProperty('--fill', p + '%');
+  }
+  if (elo) { elo.addEventListener('input', fill); fill(); }
+
+  function jump(toEnd) {
+    var g = document.getElementById('anGraph');
+    if (!g) return;
+    var r = g.getBoundingClientRect();
+    g.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: toEnd ? r.right : r.left, clientY: r.top }));
+  }
+  var f = document.getElementById('anFirst'), l = document.getElementById('anLast');
+  if (f) f.addEventListener('click', function () { jump(false); });
+  if (l) l.addEventListener('click', function () { jump(true); });
+})();
+</script>
 </body>
 </html>
