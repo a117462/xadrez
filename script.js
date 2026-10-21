@@ -680,6 +680,87 @@ function coachLine(rates, evals, positions) {
   return t;
 }
 
+/* ---- Leitor de PGN (para "Importar PGN e analisar") ---- */
+const sqIndex = (n) => 'abcdefgh'.indexOf(n[0]) + (8 - +n[1]) * 8;
+
+// Converte um lance em SAN (Nf3, exd5, O-O, e8=Q, 0-0 ...) no lance legal correspondente, ou null.
+function sanToMove(st, san) {
+  const t = san.replace(/[+#!?]+$/g, '').replace(/0/g, 'O').replace(/\s+/g, '');
+  const legal = legalMoves(st);
+  if (t === 'O-O-O') return legal.find((m) => m.castle === 'Q') || null;
+  if (t === 'O-O') return legal.find((m) => m.castle === 'K') || null;
+  const r = /^([NBRQK])?([a-h])?([1-8])?x?([a-h][1-8])(?:=?([NBRQ]))?$/.exec(t);
+  if (!r) return null;
+  const piece = r[1] || 'P',
+    dest = sqIndex(r[4]);
+  const cand = legal.filter(
+    (m) =>
+      !m.castle &&
+      m.to === dest &&
+      st.board[m.from][1] === piece &&
+      (!r[2] || sqName(m.from)[0] === r[2]) &&
+      (!r[3] || sqName(m.from)[1] === r[3]) &&
+      (m.promo || null) === (r[5] || null)
+  );
+  return cand.length === 1 ? cand[0] : null;
+}
+
+// Lê o texto de um PGN (um ou vários jogos): [{ headers, sans, result }]
+function parsePGN(text) {
+  text = String(text || '').replace(/^\uFEFF/, '').replace(/\r/g, '');
+  const games = [];
+  let cur = null;
+  const push = () => {
+    if (!cur) return;
+    let mt = cur.text
+      .replace(/\{[^}]*\}/g, ' ') // comentários { }
+      .replace(/;[^\n]*/g, ' ') // comentários de linha
+      .replace(/^%[^\n]*/gm, ' ');
+    for (let prev = ''; prev !== mt; ) {
+      prev = mt;
+      mt = mt.replace(/\([^()]*\)/g, ' '); // variações ( ), inclusive aninhadas
+    }
+    mt = mt.replace(/\$\d+/g, ' ').replace(/\d+\.(\.\.)?/g, ' ');
+    let result = cur.headers.Result || '*';
+    const sans = [];
+    for (const tok of mt.split(/\s+/)) {
+      if (!tok) continue;
+      if (/^(1-0|0-1|1\/2-1\/2|\*)$/.test(tok)) result = tok;
+      else sans.push(tok);
+    }
+    if (sans.length || Object.keys(cur.headers).length) games.push({ headers: cur.headers, sans, result });
+    cur = null;
+  };
+  for (const line of text.split('\n')) {
+    const h = /^\s*\[(\w+)\s+"(.*)"\]\s*$/.exec(line);
+    if (h) {
+      if (cur && cur.text.trim()) push(); // cabeçalho novo depois de lances = outro jogo
+      cur = cur || { headers: {}, text: '' };
+      cur.headers[h[1]] = h[2];
+    } else {
+      cur = cur || { headers: {}, text: '' };
+      cur.text += line + '\n';
+    }
+  }
+  push();
+  return games;
+}
+
+// Reproduz o jogo a partir da posição inicial. { moves:[{m}], error:{ply, san}|null, fen:boolean }
+function buildGame(g) {
+  const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  if (g.headers.FEN && g.headers.FEN.trim() !== START) return { moves: [], error: null, fen: true };
+  let st = newState();
+  const moves = [];
+  for (let i = 0; i < g.sans.length; i++) {
+    const m = sanToMove(st, g.sans[i]);
+    if (!m) return { moves, error: { ply: i + 1, san: g.sans[i] }, fen: false };
+    moves.push({ m });
+    st = apply(st, m);
+  }
+  return { moves, error: null, fen: false };
+}
+
 //END
 if (typeof document === 'undefined') {
   module.exports = {
@@ -696,6 +777,9 @@ if (typeof document === 'undefined') {
     isBookPos,
     bookSet,
     coachLine,
+    sanToMove,
+    parsePGN,
+    buildGame,
     evaluate,
     MATE,
   };
@@ -897,6 +981,7 @@ if (typeof document === 'undefined') {
       g.appendChild(wrap);
       box.appendChild(g);
     }
+    $('#rhythmNow').textContent = tcLabel(chosen.min ? chosen : null);
   }
 
   function saveCfg() {
@@ -1126,6 +1211,8 @@ if (typeof document === 'undefined') {
       names =
         mode === 'local'
           ? { w: 'Brancas', b: 'Pretas' }
+          : mode === 'pgn'
+          ? pgnNames
           : { [me]: 'Você', [opp(me)]: mode === 'cpu' ? `${sf.failMsg ? 'Computador' : 'Stockfish'} (${gameElo})` : 'Amigo' };
     for (const [el, col] of [
       ['#topPlayer', top],
@@ -1421,6 +1508,8 @@ if (typeof document === 'undefined') {
     $('#promo').hidden = true;
     $('#lobby').hidden = true;
     $('#game').hidden = false;
+    $('#game').classList.toggle('pgn-mode', mode === 'pgn');
+    document.body.classList.add('in-game');
     $('#modeTag').textContent = modeTitle(tc);
     updateStatus();
     render();
@@ -1446,6 +1535,8 @@ if (typeof document === 'undefined') {
     const names =
       mode === 'local'
         ? { w: 'Brancas', b: 'Pretas' }
+        : mode === 'pgn'
+        ? pgnNames
         : { [me]: 'Voce', [opp(me)]: mode === 'cpu' ? `${sf.failMsg ? 'Computador' : 'Stockfish'} (${gameElo})` : 'Amigo' };
     const hdr = [
       '[Event "Partida casual"]',
@@ -1949,7 +2040,7 @@ if (typeof document === 'undefined') {
   };
   const MAIN = ['sigma', 'awesome', 'best', 'book', 'strange', 'bad', 'miss', 'clown'],
     EXTRA = ['excellent', 'good'];
-  const nameOf = (c) => Side(c) + ((mode === 'net' || mode === 'cpu') && c === me ? ' (você)' : '');
+  const nameOf = (c) => (mode === 'pgn' ? pgnNames[c] : Side(c) + ((mode === 'net' || mode === 'cpu') && c === me ? ' (você)' : ''));
 
   function fmtEval(score, turn) {
     const w = turn === 'w' ? score : -score;
@@ -2197,13 +2288,14 @@ if (typeof document === 'undefined') {
   ];
   const ELO_MIN = 800;
   // Elo escolhido no menu (slider). gameElo é o Elo da partida em curso: fixado ao começar e não muda até a partida acabar.
+  let pgnNames = { w: 'Brancas', b: 'Pretas' }; // nomes dos jogadores de um PGN importado
   let cpuElo = 1500,
     gameElo = 1500,
     cpuSide = 'w',
     cpuToken = 0;
   // Tempo "humano" que o Stockfish demora para jogar, sorteado a cada lance (milissegundos).
-  const CPU_DELAY_MIN = 4000,
-    CPU_DELAY_MAX = 9000;
+  const CPU_DELAY_MIN = 2000,
+    CPU_DELAY_MAX = 5000;
   const sf = { w: null, ready: null, hasElo: false, eloMin: 1320, eloMax: 3190, hasSkill: false, listeners: new Set() };
   let sfChain = Promise.resolve();
 
@@ -2370,7 +2462,7 @@ if (typeof document === 'undefined') {
       if (token !== cpuToken || over || st.turn === me) return;
       m = builtinMove(gameElo);
     }
-    // simula uma pessoa: espera um tempo aleatório entre 4 e 9 s (contado desde que começou a pensar)
+    // simula uma pessoa: espera um tempo aleatório entre 2 e 5 s (contado desde que começou a pensar)
     let delay = CPU_DELAY_MIN + Math.random() * (CPU_DELAY_MAX - CPU_DELAY_MIN);
     if (tc) delay = Math.min(delay, Math.max(300, clock[st.turn] / 6)); // com relógio curto, não deixa cair a bandeira
     const wait = delay - (performance.now() - t0);
@@ -2410,6 +2502,99 @@ if (typeof document === 'undefined') {
     if (sf.failMsg) $('#modeTag').textContent += ` · motor simples (Stockfish não carregou: ${sf.failMsg})`;
     $('#btnCpu').disabled = false;
   };
+
+  /* ===== MENU PRINCIPAL: navegação entre telas ===== */
+  const VIEWS = ['menuHome', 'panelCpu', 'panelOnline', 'panelPgn'];
+  function showView(id) {
+    for (const v of VIEWS) $('#' + v).hidden = v !== id;
+    window.scrollTo({ top: 0 });
+  }
+  for (const b of document.querySelectorAll('[data-go]')) b.onclick = () => showView(b.dataset.go);
+  for (const b of document.querySelectorAll('[data-back]')) b.onclick = () => showView('menuHome');
+
+  /* ===== IMPORTAR PGN E ANALISAR ===== */
+  function pgnMsg(t, bad) {
+    const el = $('#pgnMsg');
+    el.textContent = t;
+    el.style.color = bad ? 'var(--lose)' : '';
+  }
+
+  function importPGN(text) {
+    if (!text.trim()) return pgnMsg('Cole um PGN ou escolha um arquivo primeiro.', true);
+    const list = parsePGN(text);
+    if (!list.length || !list[0].sans.length) return pgnMsg('Não encontrei nenhum lance nesse texto. Confira se é um PGN.', true);
+    const g = list[0],
+      res = buildGame(g);
+    if (res.fen)
+      return pgnMsg('Esse PGN começa de uma posição personalizada (FEN), que ainda não é suportada. Use partidas que começam da posição inicial.', true);
+    if (res.error)
+      return pgnMsg(`Não consegui ler o lance "${res.error.san}" (lance ${Math.ceil(res.error.ply / 2)}). Confira se o PGN está correto.`, true);
+    if (!res.moves.length) return pgnMsg('A partida não tem lances.', true);
+
+    const H = g.headers;
+    const nm = (c) => {
+      const n = H[c === 'w' ? 'White' : 'Black'] || (c === 'w' ? 'Brancas' : 'Pretas'),
+        e = H[c === 'w' ? 'WhiteElo' : 'BlackElo'];
+      return e && e !== '?' ? `${n} (${e})` : n;
+    };
+    pgnNames = { w: nm('w'), b: nm('b') };
+    startGame('pgn', 'w', null);
+    for (const { m } of res.moves) {
+      const mover = st.turn,
+        n = apply(st, m);
+      if (n.captured) caps[mover].push(n.captured);
+      const txt = moveText(st, m);
+      history.push(txt);
+      moves.push({ m, txt, mover });
+      positions.push(n);
+      st = n;
+      last = m;
+    }
+    over = true;
+    clearInterval(timer);
+    lastResult = g.result;
+    const info = [H.Event, H.Date && H.Date !== '????.??.??' ? H.Date : ''].filter((x) => x && x !== '?').join(' · ');
+    $('#modeTag').textContent = 'Partida importada' + (info ? ' · ' + info : '');
+    $('#btnAnalyze').hidden = false;
+    $('#over').hidden = true;
+    setStatus(
+      `Resultado: ${g.result}` + (list.length > 1 ? ` · analisando a partida 1 de ${list.length} do arquivo` : '')
+    );
+    render();
+    startAnalysis();
+  }
+
+  $('#btnPgnGo').onclick = () => importPGN($('#pgnText').value);
+  $('#btnPgnClear').onclick = () => {
+    $('#pgnText').value = '';
+    pgnMsg('');
+  };
+  $('#btnPgnPaste').onclick = async () => {
+    try {
+      $('#pgnText').value = await navigator.clipboard.readText();
+      pgnMsg('');
+    } catch (_) {
+      pgnMsg('O navegador não deixou colar automaticamente. Toque na caixa e cole manualmente.', true);
+    }
+  };
+  async function readPgnFile(f) {
+    if (!f) return;
+    try {
+      $('#pgnText').value = await f.text();
+      pgnMsg(`Arquivo carregado: ${f.name}`);
+    } catch (_) {
+      pgnMsg('Não consegui ler esse arquivo.', true);
+    }
+  }
+  $('#pgnFile').onchange = (e) => {
+    readPgnFile(e.target.files[0]);
+    e.target.value = '';
+  };
+  $('#pgnText').addEventListener('dragover', (e) => e.preventDefault());
+  $('#pgnText').addEventListener('drop', (e) => {
+    e.preventDefault();
+    readPgnFile(e.dataTransfer.files[0]);
+  });
 
   /* ===== INÍCIO ===== */
   applyCfg();
