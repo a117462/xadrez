@@ -12,38 +12,92 @@
   <h1>Xadrez</h1>
 
   <section id="lobby">
-    <div class="box">
-      <h2>Modo de jogo</h2>
-      <div id="modes"></div>
-      <p class="info small">Vale para quem cria a sala e para o jogo no mesmo computador. Quem entra usa o modo da sala.</p>
-      <hr>
-      <h2>Jogar com um amigo</h2>
-      <p>Um cria a sala e envia o código. O outro digita o código e entra.</p>
-      <button id="btnCreate">Criar sala</button>
-      <p id="roomInfo" class="info"></p>
-      <div class="row" id="copyRow" hidden>
-        <button id="btnCopy" class="ghost">📋 Copiar código</button>
-      </div>
-      <div class="row">
-        <input id="codeInput" placeholder="Código da sala" maxlength="5" autocomplete="off">
-        <button id="btnJoin">Entrar</button>
-      </div>
-      <hr>
-      <h2>Jogar contra o Stockfish</h2>
+    <!-- ===== MENU PRINCIPAL ===== -->
+    <div id="menuHome" class="menu">
+      <header class="hero">
+        <div class="hero-logo" aria-hidden="true">♞</div>
+        <h1 class="hero-title">Xadrez</h1>
+        <p class="hero-sub">Jogue com amigos, enfrente o Stockfish ou analise suas partidas.</p>
+      </header>
+
+      <details class="rhythm">
+        <summary><span>⏱ Ritmo da partida</span><b id="rhythmNow">Sem relógio</b></summary>
+        <div id="modes"></div>
+        <p class="info small">Vale para quem cria a sala, para o jogo contra o computador e no mesmo aparelho. Quem entra numa sala usa o ritmo da sala.</p>
+      </details>
+
+      <nav class="menu-grid" aria-label="Menu principal">
+        <button type="button" class="menu-card" data-go="panelCpu">
+          <span class="mc-icon">♚</span>
+          <span class="mc-text"><span class="mc-title">Contra o computador</span><span class="mc-desc">Stockfish com Elo de 800 a 3000</span></span>
+          <span class="mc-go" aria-hidden="true">›</span>
+        </button>
+        <button type="button" class="menu-card" data-go="panelOnline">
+          <span class="mc-icon">🌐</span>
+          <span class="mc-text"><span class="mc-title">Jogar online</span><span class="mc-desc">Crie uma sala e envie o código a um amigo</span></span>
+          <span class="mc-go" aria-hidden="true">›</span>
+        </button>
+        <button type="button" class="menu-card" id="btnLocal">
+          <span class="mc-icon">👥</span>
+          <span class="mc-text"><span class="mc-title">Mesmo aparelho</span><span class="mc-desc">Dois jogadores, um só tabuleiro</span></span>
+          <span class="mc-go" aria-hidden="true">›</span>
+        </button>
+        <button type="button" class="menu-card accent" data-go="panelPgn">
+          <span class="mc-icon">📥</span>
+          <span class="mc-text"><span class="mc-title">Importar PGN e analisar</span><span class="mc-desc">Cole ou envie uma partida e veja a análise completa</span></span>
+          <span class="mc-go" aria-hidden="true">›</span>
+        </button>
+      </nav>
+      <p class="menu-foot">O Stockfish roda direto no seu navegador. Sem cadastro.</p>
+    </div>
+
+    <!-- ===== CONTRA O COMPUTADOR ===== -->
+    <div id="panelCpu" class="box menu-panel" hidden>
+      <div class="panel-head"><button type="button" class="ghost back" data-back aria-label="Voltar ao menu">‹ Voltar</button><h2>Contra o computador</h2></div>
       <label class="elo-label" for="eloRange">Elo do Stockfish: <b id="eloOut">1500</b></label>
       <input type="range" id="eloRange" min="800" max="3000" step="50" value="1500">
+      <p class="info small">O Elo fica fixo durante a partida. Para mudar, volte ao menu e comece outra.</p>
       <div class="row">
         <select id="cpuColor" aria-label="Cor">
           <option value="w">Jogar de brancas</option>
           <option value="b">Jogar de pretas</option>
           <option value="r">Cor aleatória</option>
         </select>
-        <button id="btnCpu">Jogar contra o computador</button>
+        <button id="btnCpu">Começar partida</button>
       </div>
       <p id="cpuMsg" class="info small"></p>
+    </div>
+
+    <!-- ===== ONLINE ===== -->
+    <div id="panelOnline" class="box menu-panel" hidden>
+      <div class="panel-head"><button type="button" class="ghost back" data-back aria-label="Voltar ao menu">‹ Voltar</button><h2>Jogar online</h2></div>
+      <p>Um cria a sala e envia o código. O outro digita o código e entra.</p>
+      <button id="btnCreate">Criar sala</button>
+      <p id="roomInfo" class="info"></p>
+      <div class="row" id="copyRow" hidden>
+        <button id="btnCopy" class="ghost">📋 Copiar código</button>
+      </div>
       <hr>
-      <button id="btnLocal" class="ghost">Jogar no mesmo computador</button>
+      <div class="row">
+        <input id="codeInput" placeholder="Código da sala" maxlength="5" autocomplete="off">
+        <button id="btnJoin">Entrar</button>
+      </div>
       <p id="lobbyMsg" class="info"></p>
+    </div>
+
+    <!-- ===== IMPORTAR PGN ===== -->
+    <div id="panelPgn" class="box menu-panel wide" hidden>
+      <div class="panel-head"><button type="button" class="ghost back" data-back aria-label="Voltar ao menu">‹ Voltar</button><h2>Importar PGN e analisar</h2></div>
+      <p class="info small">Cole o PGN de uma partida (Lichess, chess.com, etc.) ou escolha um arquivo <b>.pgn</b>. O Stockfish analisa cada lance e classifica a partida.</p>
+      <textarea id="pgnText" rows="8" spellcheck="false" placeholder='[Event "Minha partida"]&#10;[White "Eu"]&#10;[Black "Amigo"]&#10;&#10;1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 ...'></textarea>
+      <div class="row">
+        <label class="file-btn" for="pgnFile">📂 Escolher arquivo</label>
+        <input type="file" id="pgnFile" accept=".pgn,.txt,text/plain" hidden>
+        <button type="button" id="btnPgnPaste" class="ghost">📋 Colar</button>
+        <button type="button" id="btnPgnClear" class="ghost">Limpar</button>
+      </div>
+      <button type="button" id="btnPgnGo" class="wide-btn">Analisar partida</button>
+      <p id="pgnMsg" class="info small" role="status"></p>
     </div>
   </section>
 
