@@ -392,13 +392,12 @@ const clampCp = (s) => Math.max(-1000, Math.min(1000, s)); // mate conta como "g
 const winPct = (cp) => 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
 const accuracyOf = (loss) => Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * loss) - 3.1669));
 
-function classifyLoss(loss, isBest) {
-  if (isBest || loss < 0.3) return 'best';
-  if (loss < 2) return 'excellent';
-  if (loss < 5) return 'good';
-  if (loss < 10) return 'strange'; // imprecisão
-  if (loss < 20) return 'bad'; // erro
-  return 'clown'; // gafe
+function classifyLoss(cp) {
+  if (cp <= 15) return 'excellent';
+  if (cp <= 40) return 'good';
+  if (cp <= 100) return 'inaccuracy';
+  if (cp <= 200) return 'mistake';
+  return 'blunder';
 }
 
 /* ---- Livro de aberturas (compacto): posições de teoria comum. Um lance que leva a uma destas posições é "Book". ---- */
@@ -541,7 +540,7 @@ function bookSet() {
 }
 const isBookPos = (st) => bookSet().has(bookKey(st));
 
-/* ---- Sacrifício (para o "Sigma"/Brilliant): troca estática (SEE) na casa de destino ---- */
+/* ---- Sacrifício (para o selo Brilliant): troca estática (SEE) na casa de destino ---- */
 const SEE_VAL = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 100 };
 const SEE_KN = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
 const SEE_DIR = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
@@ -605,43 +604,52 @@ function sacrificeValue(st, m) {
 const pieceCount = (b) => b.filter((p) => p && 'QRBN'.includes(p[1])).length;
 
 // positions[k] = posição depois de k lances; mvs[k] = lance que leva de positions[k] a positions[k+1].
-// evals[k] = { score (de quem joga, melhor linha), score2 (2ª melhor linha ou null), move (melhor lance), n (lances legais) }.
-// O lance jogado vale -evals[k+1].score: os dois valores vêm da mesma profundidade (se `shallow` for dado, usa-o).
+// evals[k] = { score (de quem joga, melhor linha), score2 (2ª melhor linha ou null), score3, move (melhor lance), n (lances legais) }.
+// O lance jogado vale -evals[k+1].score (mesma profundidade; se `shallow` for dado, usa-o).
 //
-// Classes: sigma (Brilliant), awesome (Great), best, excellent, good, strange (imprecisão), bad (erro), miss, clown (gafe).
-//  - Sigma: sacrifício de peça (>= 2 peões), que é o melhor/quase melhor lance, que não deixa a posição má
-//    e que não ganhava de qualquer jeito (o 2º melhor lance não ganha tudo). No final de jogo tem de ser quase o único bom lance.
-//  - Awesome: lance que muda o rumo da partida: quase único (o 2º melhor perde >= 15%) ou que salva/ganha a posição; não vale recaptura óbvia.
-//  - Book: posição de teoria de abertura (lista compacta acima); não conta como erro.
-//  - Miss: o adversário errou no lance anterior e você não aproveitou.
+// SELOS (9). Perda medida em centipawns (CP) contra a melhor linha do motor:
+//  book       lance de teoria de abertura (lista compacta BOOK_LINES).
+//  forced     única jogada legal, ou a única que não leva a mate imediato.
+//  brilliant  sacrifício real (troca estática perdendo >= 2 peões) que é o melhor lance ou perde no máx. 10 CP,
+//             sem piorar a posição (fica >= 0 CP) e sem já estar ganhando de lavada (< +800 CP). Exige análise com MultiPV.
+//             Se um sacrifício joga fora a vantagem (perde > 100 CP e deixa de estar melhor / passa a estar perdido) -> blunder.
+//  great      melhor lance (perda <= 15 CP) e o 2º melhor já dá vantagem clara ao adversário (<= -150 CP), com a diferença
+//             para o 2º >= 150 CP; não vale recaptura óbvia.
+//  excellent  0-15 CP · good 15-40 · inaccuracy 40-100 · mistake 100-200 · blunder > 200
+// Perdas em posições já decididas (ambos os lados da conta >= +500 ou <= -500 CP) não contam.
 function rateMoves(positions, mvs, evals, shallow) {
   const ev = shallow || evals,
     out = [];
+  const MATED = -(MATE - 100);
   mvs.forEach((m, k) => {
     const e = evals[k],
-      same = !!e.move && e.move.from === m.from && e.move.to === m.to && (e.move.promo || null) === (m.promo || null),
-      forced = same || e.n <= 1;
-    const bestW = winPct(clampCp(e.score)),
-      playedW = winPct(clampCp(-ev[k + 1].score));
-    const book = k < 30 && isBookPos(positions[k + 1]);
-    let loss = forced || book ? 0 : Math.max(0, bestW - playedW);
-    let cls = book ? 'book' : classifyLoss(loss, forced);
-    const prevLoss = k > 0 ? out[k - 1].loss : 0;
-    if ((cls === 'strange' || cls === 'bad') && prevLoss >= 10) cls = 'miss';
-    if ((cls === 'best' || cls === 'excellent') && e.n > 1 && e.score2 != null) {
-      const s2 = winPct(clampCp(e.score2)),
-        gap = bestW - s2,
-        endgame = pieceCount(positions[k].board) <= 6,
-        recapture = k > 0 && mvs[k - 1].to === m.to && positions[k].board[m.to];
-      if (sacrificeValue(positions[k], m) >= 2 && playedW >= 40 && s2 < 85 && (!endgame || gap >= 15)) cls = 'sigma';
-      else if (
-        !recapture &&
-        bestW < 92 &&
-        (gap >= 15 || (gap >= 8 && ((s2 < 40 && bestW >= 40) || (s2 < 60 && bestW >= 65))))
-      )
-        cls = 'awesome'; // só lance bom, ou lance que salva (perdendo->equilibrado) / vence (equilibrado->ganhando)
+      pos = positions[k],
+      same = !!e.move && e.move.from === m.from && e.move.to === m.to && (e.move.promo || null) === (m.promo || null);
+    const beforeCp = clampCp(e.score), // melhor linha
+      afterCp = clampCp(-ev[k + 1].score); // lance jogado
+    let cpLoss = same ? 0 : Math.max(0, beforeCp - afterCp);
+    if ((beforeCp >= 500 && afterCp >= 500) || (beforeCp <= -500 && afterCp <= -500)) cpLoss = 0;
+    // perda em % de chance de vitória: usada só na precisão e no resumo do Coach
+    const loss = same || e.n <= 1 ? 0 : Math.max(0, winPct(beforeCp) - winPct(afterCp));
+
+    const hasPV = e.score2 != null; // análise com várias linhas (Stockfish)
+    let cls;
+    const onlyNonMate = same && hasPV && e.score2 <= MATED && e.score > MATED; // todas as outras levam a mate
+    const sac = sacrificeValue(pos, m);
+    if (k < 30 && isBookPos(positions[k + 1])) cls = 'book';
+    else if (e.n <= 1 || onlyNonMate) cls = 'forced';
+    else {
+      cls = classifyLoss(cpLoss);
+      if (hasPV && sac >= 2 && cpLoss <= 10 && afterCp >= 0 && beforeCp < 800) cls = 'brilliant';
+      else if (sac >= 2 && cpLoss > 100 && ((beforeCp >= 100 && afterCp <= 30) || (afterCp <= -300 && beforeCp > -300))) cls = 'blunder';
+      else if (cls === 'excellent' && hasPV) {
+        const s2 = clampCp(e.score2),
+          recapture = k > 0 && mvs[k - 1].to === m.to && pos.board[m.to];
+        if (!recapture && s2 <= -150 && beforeCp - s2 >= 150 && beforeCp >= -100) cls = 'great';
+      }
     }
-    out.push({ loss, cls, acc: accuracyOf(loss), mover: positions[k].turn });
+    const free = cls === 'book' || cls === 'forced'; // livro e jogada forçada nunca perdem nada
+    out.push({ loss: free ? 0 : loss, cp: free ? 0 : cpLoss, cls, acc: accuracyOf(free ? 0 : loss), mover: pos.turn, same, sac });
   });
   return out;
 }
@@ -1236,6 +1244,7 @@ if (typeof document === 'undefined') {
     $('#revRow').hidden = !(over && !an && moves.length);
     updatePreBtn();
     updateClocks();
+    drawBadge();
     drawMarks();
     runAnim();
   }
@@ -1688,6 +1697,17 @@ if (typeof document === 'undefined') {
           },
         ])
       : marks;
+    // um <marker> (ponta da seta) por cor; orient="auto" faz a ponta acompanhar a direção final do traço
+    const colors = [...new Set(list.filter((m) => m.type === 'arrow').map((m) => m.color))];
+    const defs = colors
+      .map(
+        (c, i) =>
+          `<marker id="ah${i}" viewBox="0 0 10 10" refX="0" refY="5" markerWidth=".42" markerHeight=".5" markerUnits="userSpaceOnUse" orient="auto" preserveAspectRatio="none"><polygon points="0,0 10,5 0,10" fill="${c}"/></marker>`
+      )
+      .join('');
+    const HL = 0.42, // comprimento da ponta
+      GAP = 0.12, // folga até o centro da casa de destino
+      START = 0.18; // folga do centro da casa de origem
     let h = '';
     for (const m of list) {
       const [x1, y1] = pos(m.from);
@@ -1698,25 +1718,72 @@ if (typeof document === 'undefined') {
       const [x2, y2] = pos(m.to),
         dx = x2 - x1,
         dy = y2 - y1,
-        len = Math.hypot(dx, dy),
-        ux = dx / len,
-        uy = dy / len;
-      const hl = 0.42,
-        hw = 0.5;
-      const tx = x2 - ux * 0.12,
-        ty = y2 - uy * 0.12; // ponta
-      const bx = tx - ux * hl,
-        by = ty - uy * hl; // base da ponta
-      const sx = x1 + ux * 0.18,
-        sy = y1 + uy * 0.18; // início
-      h +=
-        `<g opacity=".85"><line x1="${sx}" y1="${sy}" x2="${bx}" y2="${by}" stroke="${m.color}" stroke-width=".17" stroke-linecap="round"/>` +
-        `<polygon points="${tx},${ty} ${bx - uy * (hw / 2)},${by + ux * (hw / 2)} ${
-          bx + uy * (hw / 2)
-        },${by - ux * (hw / 2)}" fill="${m.color}"/></g>`;
+        adx = Math.abs(dx),
+        ady = Math.abs(dy),
+        knight = (adx === 1 && ady === 2) || (adx === 2 && ady === 1);
+      let d;
+      if (knight) {
+        // Cavalo: curva de Bézier quadrática em "L". O ponto de controlo cruza o X de uma casa com o Y da outra
+        // (a perna longa primeiro), então a seta contorna as casas vizinhas em vez de cortar na diagonal.
+        const cx = ady > adx ? x1 : x2,
+          cy = ady > adx ? y2 : y1;
+        const ux = Math.sign(x2 - cx), // direção do último trecho (C -> destino), sempre horizontal ou vertical
+          uy = Math.sign(y2 - cy);
+        const bx = x2 - ux * (GAP + HL), // a curva termina na base da ponta, na mesma direção do último trecho
+          by = y2 - uy * (GAP + HL);
+        const sl = Math.hypot(cx - x1, cy - y1);
+        const sx = x1 + ((cx - x1) / sl) * START,
+          sy = y1 + ((cy - y1) / sl) * START;
+        d = `M${sx} ${sy}Q${cx} ${cy} ${bx} ${by}`;
+      } else {
+        const len = Math.hypot(dx, dy),
+          ux = dx / len,
+          uy = dy / len;
+        d = `M${x1 + ux * START} ${y1 + uy * START}L${x2 - ux * (GAP + HL)} ${y2 - uy * (GAP + HL)}`;
+      }
+      h += `<path d="${d}" fill="none" stroke="${m.color}" stroke-width=".17" stroke-linecap="round" marker-end="url(#ah${colors.indexOf(m.color)})" opacity="${m.best ? 0.6 : 0.85}"/>`;
     }
-    svg.innerHTML = h;
+    svg.innerHTML = (defs ? `<defs>${defs}</defs>` : '') + h;
   }
+
+  /* ===== SELO DO LANCE NA CASA DE DESTINO (só na revisão da análise) ===== */
+  let badgeFresh = false;
+  function drawBadge() {
+    const wrap = $('#boardWrap');
+    if (!wrap) return;
+    let layer = $('#badgeLayer');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'badgeLayer';
+      wrap.appendChild(layer);
+    }
+    layer.innerHTML = '';
+    if (review === null || review < 1 || !an || !an.done || !an.rates[review - 1]) return;
+    const r = an.rates[review - 1],
+      to = moves[review - 1].m.to;
+    let row = to >> 3,
+      col = to & 7;
+    if (effectiveFlip()) {
+      row = 7 - row;
+      col = 7 - col;
+    }
+    const img = document.createElement('img');
+    img.className = 'mbadge';
+    img.alt = CLS[r.cls].label;
+    img.draggable = false;
+    img.src = `badges/${CLS[r.cls].file}.png`;
+    img.style.left = (col + 1) * 12.5 + '%'; // canto superior direito da casa
+    img.style.top = row * 12.5 + '%';
+    img.onerror = () => img.remove();
+    if (!badgeFresh) img.classList.add('show'); // redesenho sem animação
+    layer.appendChild(img);
+    if (badgeFresh) {
+      void img.offsetWidth; // força o estilo inicial antes de ligar a transição
+      img.classList.add('show');
+      badgeFresh = false;
+    }
+  }
+
 
   /* ===== ARRASTAR PEÇAS (com um balanço sutil, como se a peça tivesse peso) ===== */
   const sqEl = (i) => $(`[data-i="${i}"]`);
@@ -2026,20 +2093,21 @@ if (typeof document === 'undefined') {
   };
 
   /* ===== ANÁLISE DA PARTIDA ===== */
+  // Selos: a imagem de cada um está em badges/<file>.png
   const CLS = {
-    sigma: { label: 'Sigma', sym: '!!', color: '#26c9a8', note: 'Sacrifício brilhante: não era óbvio e ainda assim era dos melhores lances.' },
-    awesome: { label: 'Awesome', sym: '!', color: '#7aa7d6', note: 'Lance quase único: as alternativas eram bem piores.' },
-    best: { label: 'Best', sym: '★', color: '#7bd88f' },
-    book: { label: 'Livro', sym: '📖', color: '#b79b72', note: 'Lance de teoria de abertura.' },
-    excellent: { label: 'Excelente', sym: '✓', color: '#5fc2a3' },
-    good: { label: 'Bom', sym: '•', color: '#a9b6c4' },
-    strange: { label: 'Strange', sym: '?!', color: '#f2c14e' },
-    bad: { label: 'Bad', sym: '?', color: '#ef8f3a' },
-    miss: { label: 'Miss', sym: '✕', color: '#e5484d', note: 'O adversário errou no lance anterior e você não aproveitou.' },
-    clown: { label: 'Clown', sym: '??', color: '#a31d24' },
+    brilliant: { label: 'Brilhante', sym: '!!', color: '#3bb2ff', file: 'brilliant', note: 'Sacrifício brilhante: entrega material e o motor confirma que é o melhor lance.' },
+    great: { label: 'Grande jogada', sym: '!?', color: '#4a75a8', file: 'great', note: 'Era praticamente o único lance: todas as alternativas davam vantagem clara ao adversário.' },
+    book: { label: 'Livro', sym: 'livro', color: '#b07d5a', file: 'book', note: 'Lance de teoria de abertura.' },
+    forced: { label: 'Forçada', sym: 'forçada', color: '#8a8a8a', file: 'forced', note: 'Era a única jogada possível.' },
+    excellent: { label: 'Excelente', sym: '!', color: '#2f9a66', file: 'excellent' },
+    good: { label: 'Boa', sym: '✓', color: '#0cb860', file: 'good' },
+    inaccuracy: { label: 'Imprecisão', sym: '?!', color: '#fbd94f', file: 'inaccuracy' },
+    mistake: { label: 'Erro', sym: '?', color: '#ff9a3c', file: 'mistake' },
+    blunder: { label: 'Erro crasso', sym: '??', color: '#ff5a5f', file: 'blunder' },
   };
-  const MAIN = ['sigma', 'awesome', 'best', 'book', 'strange', 'bad', 'miss', 'clown'],
-    EXTRA = ['excellent', 'good'];
+  const BEST_ARROW = '#9e9e9e'; // seta cinzenta da melhor jogada (PV1)
+  const MAIN = ['brilliant', 'great', 'book', 'forced', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'],
+    EXTRA = [];
   const nameOf = (c) => (mode === 'pgn' ? pgnNames[c] : Side(c) + ((mode === 'net' || mode === 'cpu') && c === me ? ' (você)' : ''));
 
   function fmtEval(score, turn) {
@@ -2053,12 +2121,12 @@ if (typeof document === 'undefined') {
 
   // Análise com Stockfish: profundidade/tempo por posição (suba para mais precisão, desça para mais rapidez)
   const SF_DEPTH = 14,
-    SF_MOVETIME = 1000;
+    SF_MOVETIME = 1200; // com MultiPV 3 cada linha recebe menos tempo: 1,2 s por posição
 
   async function sfEvalPos(pos, played) {
     const legal = legalMoves(pos);
     if (!legal.length) return { score: inCheck(pos, pos.turn) ? -MATE : 0, move: null, n: 0 };
-    const setup = ['setoption name MultiPV value 2'];
+    const setup = ['setoption name MultiPV value 3']; // as 3 melhores linhas (PV1 = melhor jogada)
     if (sf.hasElo) setup.push('setoption name UCI_LimitStrength value false');
     if (sf.hasSkill) setup.push('setoption name Skill Level value 20');
     const list = played.map((m) => sqName(m.from) + sqName(m.to) + (m.promo ? m.promo.toLowerCase() : ''));
@@ -2079,7 +2147,13 @@ if (typeof document === 'undefined') {
         sqName(x.to) === bm.slice(2, 4) &&
         (x.promo || null) === (bm[4] ? bm[4].toUpperCase() : null)
     );
-    return { score: scores[1] || 0, score2: legal.length > 1 && scores[2] !== undefined ? scores[2] : null, move: move || legal[0], n: legal.length };
+    return {
+      score: scores[1] || 0,
+      score2: legal.length > 1 && scores[2] !== undefined ? scores[2] : null,
+      score3: legal.length > 2 && scores[3] !== undefined ? scores[3] : null,
+      move: move || legal[0],
+      n: legal.length,
+    };
   }
 
   const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -2127,8 +2201,8 @@ if (typeof document === 'undefined') {
 
   const phaseOf = (k) => (pieceCount(positions[k].board) <= 6 ? 2 : k < 20 ? 0 : 1);
   const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
-  const phCls = (v) => (v === null ? null : v >= 90 ? 'best' : v >= 80 ? 'excellent' : v >= 65 ? 'good' : v >= 50 ? 'strange' : v >= 35 ? 'bad' : 'clown');
-  const badge = (k) => `<span class="bd c-${k}" title="${CLS[k].label}">${CLS[k].sym}</span>`;
+  const phCls = (v) => (v === null ? null : v >= 90 ? 'excellent' : v >= 80 ? 'good' : v >= 65 ? 'inaccuracy' : v >= 50 ? 'mistake' : 'blunder');
+  const badge = (k) => `<img class="bimg" src="badges/${CLS[k].file}.png" alt="${CLS[k].sym}" title="${CLS[k].label}" draggable="false">`;
 
   function drawGraph() {
     const N = an.evals.length,
@@ -2142,11 +2216,20 @@ if (typeof document === 'undefined') {
     h += `<path d="M0,${H} ${pts.map((p) => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')} L${W},${H} Z" fill="#d9d2c3"/>`;
     h += `<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="#7a6f60" stroke-width=".6"/>`;
     an.rates.forEach((r, k) => {
-      if (['sigma', 'awesome', 'strange', 'bad', 'miss', 'clown'].includes(r.cls))
+      if (['brilliant', 'great', 'inaccuracy', 'mistake', 'blunder'].includes(r.cls))
         h += `<circle cx="${pts[k + 1][0].toFixed(1)}" cy="${pts[k + 1][1].toFixed(1)}" r="2.6" fill="${CLS[r.cls].color}" stroke="#12100c" stroke-width=".6"/>`;
     });
     if (review !== null) h += `<line x1="${pts[review][0].toFixed(1)}" x2="${pts[review][0].toFixed(1)}" y1="0" y2="${H}" stroke="#f2c14e" stroke-width="1"/>`;
     $('#anGraph').innerHTML = h;
+    // barra de avaliação (opcional no HTML): acompanha o lance em revisão
+    const fill = $('#evalFill');
+    if (fill) {
+      const i = review === null ? an.evals.length - 1 : Math.max(0, Math.min(an.evals.length - 1, review));
+      const e = an.evals[i],
+        wcp = positions[i].turn === 'w' ? e.score : -e.score;
+      fill.style.width = winPct(clampCp(wcp)).toFixed(1) + '%';
+      $('#evalNum').textContent = fmtEval(e.score, positions[i].turn);
+    }
   }
 
   function showAnalysis() {
@@ -2154,7 +2237,7 @@ if (typeof document === 'undefined') {
     $('#anResult').hidden = false;
     $('#anEngine').textContent = an.sf
       ? `Motor: Stockfish (profundidade ${SF_DEPTH}, até ${SF_MOVETIME / 1000}s por posição).`
-      : 'O Stockfish não carregou: análise simplificada, pouco fiável (sem Sigma/Awesome). Coloque stockfish.js na pasta do site.';
+      : 'O Stockfish não carregou: análise simplificada, pouco fiável (sem Brilhante/Grande jogada). Coloque stockfish.js na pasta do site.';
     const rates = an.rates,
       acc = { w: [], b: [] },
       cnt = { w: {}, b: {} },
@@ -2173,8 +2256,10 @@ if (typeof document === 'undefined') {
     h += `<tr class="acc"><td>Precisão</td><td>${f1(acc.w)}</td><td>${f1(acc.b)}</td></tr>`;
     h += `<tr><td>Classificação da partida (estimada)</td><td>${rating(acc.w)}</td><td>${rating(acc.b)}</td></tr>`;
     h += MAIN.map((k) => row(k)).join('');
-    h += `<tr class="more"><td colspan="3"><button type="button" id="anMore" class="link" aria-label="Mostrar mais">▾</button></td></tr>`;
-    h += EXTRA.map((k) => row(k, true)).join('');
+    if (EXTRA.length) {
+      h += `<tr class="more"><td colspan="3"><button type="button" id="anMore" class="link" aria-label="Mostrar mais">▾</button></td></tr>`;
+      h += EXTRA.map((k) => row(k, true)).join('');
+    }
     ['Abertura', 'Meio-jogo', 'Final'].forEach((name, p) => {
       const c = (col) => {
         const v = avg(ph[col][p]),
@@ -2213,6 +2298,14 @@ if (typeof document === 'undefined') {
     if (!an || !an.done) return;
     review = Math.max(0, Math.min(moves.length, i));
     marks = [];
+    // se o jogador não fez a melhor jogada (PV1), mostra uma seta cinzenta com ela
+    const k0 = review - 1;
+    if (k0 >= 0) {
+      const r0 = an.rates[k0],
+        e0 = an.evals[k0];
+      if (!r0.same && e0.move && r0.cls !== 'book') marks.push({ type: 'arrow', from: e0.move.from, to: e0.move.to, color: BEST_ARROW, best: true });
+    }
+    badgeFresh = true; // o selo do lance aparece com a animação
     render();
     for (const b of document.querySelectorAll('#anMoves .mv-btn'))
       b.classList.toggle('on', +b.dataset.k === review);
@@ -2225,7 +2318,7 @@ if (typeof document === 'undefined') {
       e = an.evals[k],
       mm = moves[k];
     let t = `Lance ${Math.floor(k / 2) + 1}${mm.mover === 'b' ? '…' : '.'} ${mm.txt}: ${CLS[r.cls].label} (${CLS[r.cls].sym}).`;
-    if (!['best', 'book', 'sigma', 'awesome'].includes(r.cls) && e.move) t += ` O motor preferia ${moveText(positions[k], e.move)}.`;
+    if (!r.same && e.move && r.cls !== 'book') t += ` O motor preferia ${moveText(positions[k], e.move)} (perda de ${r.cp} CP).`;
     t += ` Avaliação (brancas): ${fmtEval(e.score, positions[k].turn)} → ${fmtEval(an.evals[k + 1].score, positions[k + 1].turn)}.`;
     if (CLS[r.cls].note) t += ' ' + CLS[r.cls].note;
     $('#anDetail').textContent = t;
@@ -2247,6 +2340,8 @@ if (typeof document === 'undefined') {
   });
   $('#anPrev').onclick = () => gotoReview((review === null ? moves.length : review) - 1);
   $('#anNext').onclick = () => gotoReview((review === null ? moves.length : review) + 1);
+  if ($('#anFirst')) $('#anFirst').onclick = () => gotoReview(0);
+  if ($('#anLast')) $('#anLast').onclick = () => gotoReview(moves.length);
   $('#btnAnClose').onclick = closeAnalysis;
   $('#btnAnalyze').onclick = startAnalysis;
   $('#btnOverAnalyze').onclick = startAnalysis;
@@ -2521,87 +2616,4 @@ if (typeof document === 'undefined') {
 
   function importPGN(text) {
     if (!text.trim()) return pgnMsg('Cole um PGN ou escolha um arquivo primeiro.', true);
-    const list = parsePGN(text);
-    if (!list.length || !list[0].sans.length) return pgnMsg('Não encontrei nenhum lance nesse texto. Confira se é um PGN.', true);
-    const g = list[0],
-      res = buildGame(g);
-    if (res.fen)
-      return pgnMsg('Esse PGN começa de uma posição personalizada (FEN), que ainda não é suportada. Use partidas que começam da posição inicial.', true);
-    if (res.error)
-      return pgnMsg(`Não consegui ler o lance "${res.error.san}" (lance ${Math.ceil(res.error.ply / 2)}). Confira se o PGN está correto.`, true);
-    if (!res.moves.length) return pgnMsg('A partida não tem lances.', true);
-
-    const H = g.headers;
-    const nm = (c) => {
-      const n = H[c === 'w' ? 'White' : 'Black'] || (c === 'w' ? 'Brancas' : 'Pretas'),
-        e = H[c === 'w' ? 'WhiteElo' : 'BlackElo'];
-      return e && e !== '?' ? `${n} (${e})` : n;
-    };
-    pgnNames = { w: nm('w'), b: nm('b') };
-    startGame('pgn', 'w', null);
-    for (const { m } of res.moves) {
-      const mover = st.turn,
-        n = apply(st, m);
-      if (n.captured) caps[mover].push(n.captured);
-      const txt = moveText(st, m);
-      history.push(txt);
-      moves.push({ m, txt, mover });
-      positions.push(n);
-      st = n;
-      last = m;
-    }
-    over = true;
-    clearInterval(timer);
-    lastResult = g.result;
-    const info = [H.Event, H.Date && H.Date !== '????.??.??' ? H.Date : ''].filter((x) => x && x !== '?').join(' · ');
-    $('#modeTag').textContent = 'Partida importada' + (info ? ' · ' + info : '');
-    $('#btnAnalyze').hidden = false;
-    $('#over').hidden = true;
-    setStatus(
-      `Resultado: ${g.result}` + (list.length > 1 ? ` · analisando a partida 1 de ${list.length} do arquivo` : '')
-    );
-    render();
-    startAnalysis();
-  }
-
-  $('#btnPgnGo').onclick = () => importPGN($('#pgnText').value);
-  $('#btnPgnClear').onclick = () => {
-    $('#pgnText').value = '';
-    pgnMsg('');
-  };
-  $('#btnPgnPaste').onclick = async () => {
-    try {
-      $('#pgnText').value = await navigator.clipboard.readText();
-      pgnMsg('');
-    } catch (_) {
-      pgnMsg('O navegador não deixou colar automaticamente. Toque na caixa e cole manualmente.', true);
-    }
-  };
-  async function readPgnFile(f) {
-    if (!f) return;
-    try {
-      $('#pgnText').value = await f.text();
-      pgnMsg(`Arquivo carregado: ${f.name}`);
-    } catch (_) {
-      pgnMsg('Não consegui ler esse arquivo.', true);
-    }
-  }
-  $('#pgnFile').onchange = (e) => {
-    readPgnFile(e.target.files[0]);
-    e.target.value = '';
-  };
-  $('#pgnText').addEventListener('dragover', (e) => e.preventDefault());
-  $('#pgnText').addEventListener('drop', (e) => {
-    e.preventDefault();
-    readPgnFile(e.dataTransfer.files[0]);
-  });
-
-  /* ===== INÍCIO ===== */
-  applyCfg();
-  piecesReady.then(() => st && render());
-  buildModes();
-  syncViewButtons();
-  gameElo = cpuElo;
-  $('#eloRange').value = cpuElo;
-  $('#eloOut').textContent = cpuElo;
-}
+    const list = parseP
