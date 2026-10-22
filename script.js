@@ -2616,4 +2616,87 @@ if (typeof document === 'undefined') {
 
   function importPGN(text) {
     if (!text.trim()) return pgnMsg('Cole um PGN ou escolha um arquivo primeiro.', true);
-    const list = parseP
+    const list = parsePGN(text);
+    if (!list.length || !list[0].sans.length) return pgnMsg('Não encontrei nenhum lance nesse texto. Confira se é um PGN.', true);
+    const g = list[0],
+      res = buildGame(g);
+    if (res.fen)
+      return pgnMsg('Esse PGN começa de uma posição personalizada (FEN), que ainda não é suportada. Use partidas que começam da posição inicial.', true);
+    if (res.error)
+      return pgnMsg(`Não consegui ler o lance "${res.error.san}" (lance ${Math.ceil(res.error.ply / 2)}). Confira se o PGN está correto.`, true);
+    if (!res.moves.length) return pgnMsg('A partida não tem lances.', true);
+
+    const H = g.headers;
+    const nm = (c) => {
+      const n = H[c === 'w' ? 'White' : 'Black'] || (c === 'w' ? 'Brancas' : 'Pretas'),
+        e = H[c === 'w' ? 'WhiteElo' : 'BlackElo'];
+      return e && e !== '?' ? `${n} (${e})` : n;
+    };
+    pgnNames = { w: nm('w'), b: nm('b') };
+    startGame('pgn', 'w', null);
+    for (const { m } of res.moves) {
+      const mover = st.turn,
+        n = apply(st, m);
+      if (n.captured) caps[mover].push(n.captured);
+      const txt = moveText(st, m);
+      history.push(txt);
+      moves.push({ m, txt, mover });
+      positions.push(n);
+      st = n;
+      last = m;
+    }
+    over = true;
+    clearInterval(timer);
+    lastResult = g.result;
+    const info = [H.Event, H.Date && H.Date !== '????.??.??' ? H.Date : ''].filter((x) => x && x !== '?').join(' · ');
+    $('#modeTag').textContent = 'Partida importada' + (info ? ' · ' + info : '');
+    $('#btnAnalyze').hidden = false;
+    $('#over').hidden = true;
+    setStatus(
+      `Resultado: ${g.result}` + (list.length > 1 ? ` · analisando a partida 1 de ${list.length} do arquivo` : '')
+    );
+    render();
+    startAnalysis();
+  }
+
+  $('#btnPgnGo').onclick = () => importPGN($('#pgnText').value);
+  $('#btnPgnClear').onclick = () => {
+    $('#pgnText').value = '';
+    pgnMsg('');
+  };
+  $('#btnPgnPaste').onclick = async () => {
+    try {
+      $('#pgnText').value = await navigator.clipboard.readText();
+      pgnMsg('');
+    } catch (_) {
+      pgnMsg('O navegador não deixou colar automaticamente. Toque na caixa e cole manualmente.', true);
+    }
+  };
+  async function readPgnFile(f) {
+    if (!f) return;
+    try {
+      $('#pgnText').value = await f.text();
+      pgnMsg(`Arquivo carregado: ${f.name}`);
+    } catch (_) {
+      pgnMsg('Não consegui ler esse arquivo.', true);
+    }
+  }
+  $('#pgnFile').onchange = (e) => {
+    readPgnFile(e.target.files[0]);
+    e.target.value = '';
+  };
+  $('#pgnText').addEventListener('dragover', (e) => e.preventDefault());
+  $('#pgnText').addEventListener('drop', (e) => {
+    e.preventDefault();
+    readPgnFile(e.dataTransfer.files[0]);
+  });
+
+  /* ===== INÍCIO ===== */
+  applyCfg();
+  piecesReady.then(() => st && render());
+  buildModes();
+  syncViewButtons();
+  gameElo = cpuElo;
+  $('#eloRange').value = cpuElo;
+  $('#eloOut').textContent = cpuElo;
+}
