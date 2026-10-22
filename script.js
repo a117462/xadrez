@@ -611,10 +611,9 @@ const pieceCount = (b) => b.filter((p) => p && 'QRBN'.includes(p[1])).length;
 //  book       lance de teoria de abertura (lista compacta BOOK_LINES).
 //  forced     única jogada legal, ou a única que não leva a mate imediato.
 //  brilliant  sacrifício real (troca estática perdendo >= 2 peões) que é o melhor lance ou perde no máx. 10 CP,
-//             sem piorar a posição (fica >= 0 CP) e sem já estar ganhando de lavada (< +800 CP). Exige análise com MultiPV.
+//             sem piorar a posição (fica >= 0 CP) e que não ganhava de qualquer jeito: a 2ª melhor linha do motor tem de ficar
+//             abaixo de +500 CP (assim sacrifícios que levam a mate forçado, os clássicos, contam). Exige análise com MultiPV.
 //             Se um sacrifício joga fora a vantagem (perde > 100 CP e deixa de estar melhor / passa a estar perdido) -> blunder.
-//  great      melhor lance (perda <= 15 CP) e o 2º melhor já dá vantagem clara ao adversário (<= -150 CP), com a diferença
-//             para o 2º >= 150 CP; não vale recaptura óbvia.
 //  excellent  0-15 CP · good 15-40 · inaccuracy 40-100 · mistake 100-200 · blunder > 200
 // Perdas em posições já decididas (ambos os lados da conta >= +500 ou <= -500 CP) não contam.
 function rateMoves(positions, mvs, evals, shallow) {
@@ -640,18 +639,52 @@ function rateMoves(positions, mvs, evals, shallow) {
     else if (e.n <= 1 || onlyNonMate) cls = 'forced';
     else {
       cls = classifyLoss(cpLoss);
-      if (hasPV && sac >= 2 && cpLoss <= 10 && afterCp >= 0 && beforeCp < 800) cls = 'brilliant';
+      if (hasPV && sac >= 2 && cpLoss <= 10 && afterCp >= 0 && clampCp(e.score2) < 500) cls = 'brilliant';
       else if (sac >= 2 && cpLoss > 100 && ((beforeCp >= 100 && afterCp <= 30) || (afterCp <= -300 && beforeCp > -300))) cls = 'blunder';
-      else if (cls === 'excellent' && hasPV) {
-        const s2 = clampCp(e.score2),
-          recapture = k > 0 && mvs[k - 1].to === m.to && pos.board[m.to];
-        if (!recapture && s2 <= -150 && beforeCp - s2 >= 150 && beforeCp >= -100) cls = 'great';
-      }
     }
     const free = cls === 'book' || cls === 'forced'; // livro e jogada forçada nunca perdem nada
     out.push({ loss: free ? 0 : loss, cp: free ? 0 : cpLoss, cls, acc: accuracyOf(free ? 0 : loss), mover: pos.turn, same, sac });
   });
   return out;
+}
+
+/* ---- Precisão da partida (método do Lichess) ----
+   A precisão de cada lance sai da perda de chance de vitória (accuracyOf). Para a partida inteira, em vez da média simples:
+   - peso de cada lance = volatilidade da posição (desvio-padrão das chances de vitória numa janela deslizante, entre 0,5 e 12);
+     assim os momentos decisivos pesam mais do que a fase em que o jogo já estava decidido;
+   - resultado = (média ponderada + média harmónica) / 2. A harmónica puxa a nota para baixo quando há gafes. */
+function moveWeights(evals, positions, n) {
+  const wp = evals.map((e, i) => winPct(clampCp(positions[i].turn === 'w' ? e.score : -e.score)));
+  const w = Math.min(8, Math.max(2, Math.floor(n / 10)));
+  const out = [];
+  for (let j = 0; j < n; j++) {
+    const end = Math.min(wp.length - 1, Math.max(w - 1, j + 1)),
+      start = Math.max(0, end - w + 1),
+      win = wp.slice(start, end + 1);
+    const mean = win.reduce((a, b) => a + b, 0) / win.length;
+    const sd = Math.sqrt(win.reduce((a, b) => a + (b - mean) * (b - mean), 0) / win.length);
+    out.push(Math.max(0.5, Math.min(12, sd)));
+  }
+  return out;
+}
+// items = [{ acc, w }]
+function combineAccuracy(items) {
+  if (!items.length) return null;
+  let sw = 0,
+    swa = 0,
+    inv = 0;
+  for (const it of items) {
+    sw += it.w;
+    swa += it.acc * it.w;
+    inv += 1 / Math.max(1, it.acc);
+  }
+  return (swa / sw + items.length / inv) / 2;
+}
+function gameAccuracy(rates, evals, positions) {
+  const ws = moveWeights(evals, positions, rates.length),
+    by = { w: [], b: [] };
+  rates.forEach((r, k) => by[r.mover].push({ acc: r.acc, w: ws[k] }));
+  return { w: combineAccuracy(by.w), b: combineAccuracy(by.b), weights: ws };
 }
 
 // Resumo de uma linha da partida (o "Coach")
@@ -785,6 +818,9 @@ if (typeof document === 'undefined') {
     isBookPos,
     bookSet,
     coachLine,
+    gameAccuracy,
+    combineAccuracy,
+    moveWeights,
     sanToMove,
     parsePGN,
     buildGame,
@@ -1741,7 +1777,7 @@ if (typeof document === 'undefined') {
           uy = dy / len;
         d = `M${x1 + ux * START} ${y1 + uy * START}L${x2 - ux * (GAP + HL)} ${y2 - uy * (GAP + HL)}`;
       }
-      h += `<path d="${d}" fill="none" stroke="${m.color}" stroke-width=".17" stroke-linecap="round" marker-end="url(#ah${colors.indexOf(m.color)})" opacity="${m.best ? 0.6 : 0.85}"/>`;
+      h += `<path d="${d}" fill="none" stroke="${m.color}" stroke-width=".17" stroke-linecap="round" marker-end="url(#ah${colors.indexOf(m.color)})" opacity=".85"/>`;
     }
     svg.innerHTML = (defs ? `<defs>${defs}</defs>` : '') + h;
   }
@@ -2096,7 +2132,6 @@ if (typeof document === 'undefined') {
   // Selos: a imagem de cada um está em badges/<file>.png
   const CLS = {
     brilliant: { label: 'Brilhante', sym: '!!', color: '#3bb2ff', file: 'brilliant', note: 'Sacrifício brilhante: entrega material e o motor confirma que é o melhor lance.' },
-    great: { label: 'Grande jogada', sym: '!?', color: '#4a75a8', file: 'great', note: 'Era praticamente o único lance: todas as alternativas davam vantagem clara ao adversário.' },
     book: { label: 'Livro', sym: 'livro', color: '#b07d5a', file: 'book', note: 'Lance de teoria de abertura.' },
     forced: { label: 'Forçada', sym: 'forçada', color: '#8a8a8a', file: 'forced', note: 'Era a única jogada possível.' },
     excellent: { label: 'Excelente', sym: '!', color: '#2f9a66', file: 'excellent' },
@@ -2105,8 +2140,8 @@ if (typeof document === 'undefined') {
     mistake: { label: 'Erro', sym: '?', color: '#ff9a3c', file: 'mistake' },
     blunder: { label: 'Erro crasso', sym: '??', color: '#ff5a5f', file: 'blunder' },
   };
-  const BEST_ARROW = '#9e9e9e'; // seta cinzenta da melhor jogada (PV1)
-  const MAIN = ['brilliant', 'great', 'book', 'forced', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'],
+  const BEST_ARROW = '#6cc24a'; // seta VERDE com a melhor jogada (PV1)
+  const MAIN = ['brilliant', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'book', 'forced'],
     EXTRA = [];
   const nameOf = (c) => (mode === 'pgn' ? pgnNames[c] : Side(c) + ((mode === 'net' || mode === 'cpu') && c === me ? ' (você)' : ''));
 
@@ -2132,12 +2167,15 @@ if (typeof document === 'undefined') {
     const list = played.map((m) => sqName(m.from) + sqName(m.to) + (m.promo ? m.promo.toLowerCase() : ''));
     const posCmd = 'position startpos' + (list.length ? ' moves ' + list.join(' ') : '');
     const scores = {};
+    let depth = 0;
     const bm = await sfSearch(setup, posCmd, `go depth ${SF_DEPTH} movetime ${SF_MOVETIME}`, (l) => {
       if (!/ pv /.test(l) || /bound/.test(l)) return;
       const m = /score (cp|mate) (-?\d+)/.exec(l);
       if (!m) return;
       const v = +m[2];
-      const mp = /multipv (\d+)/.exec(l);
+      const mp = /multipv (\d+)/.exec(l),
+        dm = / depth (\d+)/.exec(l);
+      if (dm && (!mp || +mp[1] === 1)) depth = +dm[1];
       scores[mp ? +mp[1] : 1] = m[1] === 'cp' ? v : (v > 0 ? 1 : -1) * (MATE - 2 * Math.abs(v) + 1);
     });
     const move = legal.find(
@@ -2153,6 +2191,7 @@ if (typeof document === 'undefined') {
       score3: legal.length > 2 && scores[3] !== undefined ? scores[3] : null,
       move: move || legal[0],
       n: legal.length,
+      depth,
     };
   }
 
@@ -2202,8 +2241,8 @@ if (typeof document === 'undefined') {
   }
 
   const phaseOf = (k) => (pieceCount(positions[k].board) <= 6 ? 2 : k < 20 ? 0 : 1);
-  const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
-  const phCls = (v) => (v === null ? null : v >= 90 ? 'excellent' : v >= 80 ? 'good' : v >= 65 ? 'inaccuracy' : v >= 50 ? 'mistake' : 'blunder');
+  const avg = (a) => combineAccuracy(a); // a = [{acc, w}]: média ponderada pela volatilidade + média harmónica (como no Lichess)
+  const phCls = (v) => (v === null ? null : v >= 85 ? 'excellent' : v >= 70 ? 'good' : v >= 55 ? 'inaccuracy' : v >= 40 ? 'mistake' : 'blunder');
   const badge = (k) => `<img class="bimg" src="badges/${CLS[k].file}.png" alt="${CLS[k].sym}" title="${CLS[k].label}" draggable="false">`;
 
   function drawGraph() {
@@ -2218,7 +2257,7 @@ if (typeof document === 'undefined') {
     h += `<path d="M0,${H} ${pts.map((p) => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')} L${W},${H} Z" fill="#d9d2c3"/>`;
     h += `<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="#7a6f60" stroke-width=".6"/>`;
     an.rates.forEach((r, k) => {
-      if (['brilliant', 'great', 'inaccuracy', 'mistake', 'blunder'].includes(r.cls))
+      if (['brilliant', 'inaccuracy', 'mistake', 'blunder'].includes(r.cls))
         h += `<circle cx="${pts[k + 1][0].toFixed(1)}" cy="${pts[k + 1][1].toFixed(1)}" r="2.6" fill="${CLS[r.cls].color}" stroke="#12100c" stroke-width=".6"/>`;
     });
     if (review !== null) h += `<line x1="${pts[review][0].toFixed(1)}" x2="${pts[review][0].toFixed(1)}" y1="0" y2="${H}" stroke="#f2c14e" stroke-width="1"/>`;
@@ -2238,16 +2277,19 @@ if (typeof document === 'undefined') {
     $('#anProgress').hidden = true;
     $('#anResult').hidden = false;
     $('#anEngine').textContent = an.sf
-      ? `Motor: Stockfish (profundidade ${SF_DEPTH}, até ${SF_MOVETIME / 1000}s por posição).`
-      : 'O Stockfish não carregou: análise simplificada, pouco fiável (sem Brilhante/Grande jogada). Coloque stockfish.js na pasta do site.';
+      ? `Motor: Stockfish (profundidade média ${Math.round(
+          an.evals.filter((e) => e.depth).reduce((x, e) => x + e.depth, 0) / Math.max(1, an.evals.filter((e) => e.depth).length)
+        )}, até ${SF_MOVETIME / 1000}s por posição).`
+      : 'O Stockfish não carregou: análise simplificada, pouco fiável (sem o selo Brilhante). Coloque stockfish.js na pasta do site.';
     const rates = an.rates,
+      ws = moveWeights(an.evals, positions, an.rates.length),
       acc = { w: [], b: [] },
       cnt = { w: {}, b: {} },
       ph = { w: [[], [], []], b: [[], [], []] };
     rates.forEach((r, k) => {
-      acc[r.mover].push(r.acc);
+      acc[r.mover].push({ acc: r.acc, w: ws[k] });
       cnt[r.mover][r.cls] = (cnt[r.mover][r.cls] || 0) + 1;
-      ph[r.mover][phaseOf(k)].push(r.acc);
+      ph[r.mover][phaseOf(k)].push({ acc: r.acc, w: ws[k] });
     });
     const f1 = (a) => (a.length ? avg(a).toFixed(1) : '–');
     // classificação estimada a partir da precisão (aproximação; não é a do chess.com)
@@ -2263,7 +2305,7 @@ if (typeof document === 'undefined') {
     const medal = (a) => {
       if (!a.length) return '–';
       const v = avg(a);
-      return v >= 95 ? 'Excecional' : v >= 85 ? 'Ótima' : v >= 70 ? 'Boa' : v >= 50 ? 'Razoável' : 'A melhorar';
+      return v >= 90 ? 'Excecional' : v >= 80 ? 'Ótima' : v >= 65 ? 'Boa' : v >= 45 ? 'Razoável' : 'A melhorar';
     };
     const cntRow = (k, extra) => {
       const v = (n) => `<b class="${n ? '' : 'z'}"${n ? ` style="color:${CLS[k].color}"` : ''}>${n}</b>`;
