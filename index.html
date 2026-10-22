@@ -154,6 +154,13 @@ window.addEventListener('error',function(e){
       <div class="who"><span class="name"></span> <span class="caps"></span></div>
       <span class="clock"></span>
     </div>
+    <div class="row nav nav-below" id="anNavRow">
+      <button id="anFirst" class="ghost" aria-label="Primeiro lance">«</button>
+      <button id="anPrev" class="ghost" aria-label="Lance anterior">‹</button>
+      <button id="anNext" class="ghost" aria-label="Próximo lance">›</button>
+      <button id="anLast" class="ghost" aria-label="Último lance">»</button>
+    </div>
+    <div id="anDetail" class="an-detail-below" aria-live="polite"></div>
     <p id="status"></p>
 
     <div class="row hud-main">
@@ -202,16 +209,10 @@ window.addEventListener('error',function(e){
       <div id="anResult" hidden>
         <p id="anEngine" class="info small"></p>
         <p id="anCoach" class="coach"></p>
+        <div class="evalbar" aria-label="Avaliação"><div id="evalFill"></div><span id="evalNum"></span></div>
         <svg id="anGraph" viewBox="0 0 300 90" aria-label="Gráfico de vantagem"></svg>
         <p class="info small">Parte clara: vantagem das brancas. Clique no gráfico para ir a um lance.</p>
         <div id="anSummary"></div>
-        <div class="row nav">
-          <button id="anFirst" class="ghost" aria-label="Primeiro lance">«</button>
-          <button id="anPrev" class="ghost" aria-label="Lance anterior">‹</button>
-          <button id="anNext" class="ghost" aria-label="Próximo lance">›</button>
-          <button id="anLast" class="ghost" aria-label="Último lance">»</button>
-        </div>
-        <div id="anDetail"></div>
         <div class="an-scroll"><table class="an-moves"><tbody id="anMoves"></tbody></table></div>
         <button id="btnAnClose" class="ghost">Fechar análise</button>
       </div>

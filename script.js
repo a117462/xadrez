@@ -2163,7 +2163,9 @@ if (typeof document === 'undefined') {
     $('#over').hidden = true;
     const panel = $('#analysis');
     panel.hidden = false;
-    panel.scrollIntoView({ block: 'start' });
+    // mantém o tabuleiro à vista (no telemóvel o painel fica abaixo dele)
+    const bcTop = $('#boardCol').getBoundingClientRect().top;
+    if (bcTop < 0 || bcTop > innerHeight * 0.5) $('#boardCol').scrollIntoView({ block: 'start' });
     if (an && an.done) return showAnalysis();
     $('#anProgress').hidden = false;
     $('#anResult').hidden = true;
@@ -2250,25 +2252,46 @@ if (typeof document === 'undefined') {
     const f1 = (a) => (a.length ? avg(a).toFixed(1) : '–');
     // classificação estimada a partir da precisão (aproximação; não é a do chess.com)
     const rating = (a) => (a.length ? Math.round(Math.max(100, 3000 * Math.pow(avg(a) / 100, 4)) / 50) * 50 : '–');
-    const row = (k, extra) =>
-      `<tr${extra ? ' class="extra"' : ''}><td>${badge(k)} ${CLS[k].label}</td><td>${cnt.w[k] || 0}</td><td>${cnt.b[k] || 0}</td></tr>`;
-    let h = `<table class="an-sum"><tr><th></th><th>${nameOf('w')}</th><th>${nameOf('b')}</th></tr>`;
-    h += `<tr class="acc"><td>Precisão</td><td>${f1(acc.w)}</td><td>${f1(acc.b)}</td></tr>`;
-    h += `<tr><td>Classificação da partida (estimada)</td><td>${rating(acc.w)}</td><td>${rating(acc.b)}</td></tr>`;
-    h += MAIN.map((k) => row(k)).join('');
+    const escH = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const aw = avg(acc.w),
+      ab = avg(acc.b),
+      topSide = aw !== null && ab !== null ? (aw >= ab ? 'w' : 'b') : null;
+    const pl = (c) => {
+      const n = nameOf(c);
+      return `<div class="an-pl"><div class="an-av${topSide === c ? ' top' : ''}">${escH((n.trim()[0] || '?').toUpperCase())}</div><div class="an-nm">${escH(n)}</div></div>`;
+    };
+    const medal = (a) => {
+      if (!a.length) return '–';
+      const v = avg(a);
+      return v >= 95 ? 'Excecional' : v >= 85 ? 'Ótima' : v >= 70 ? 'Boa' : v >= 50 ? 'Razoável' : 'A melhorar';
+    };
+    const cntRow = (k, extra) => {
+      const v = (n) => `<b class="${n ? '' : 'z'}"${n ? ` style="color:${CLS[k].color}"` : ''}>${n}</b>`;
+      return `<div class="an-line an-cnt${extra ? ' extra' : ''}">${v(cnt.w[k] || 0)}<span class="an-lab">${badge(k)}${CLS[k].label}</span>${v(cnt.b[k] || 0)}</div>`;
+    };
+    const pair = (a, label, b, cls) =>
+      `<div class="an-line ${cls || ''}"><span class="an-pc">${a}</span><span class="an-lab">${label}</span><span class="an-pc">${b}</span></div>`;
+    let h = `<div class="an-sum"><div class="an-head">${pl('w')}<span></span>${pl('b')}</div>`;
+    h += pair(`<span class="an-box">${f1(acc.w)}</span>`, 'Precisão', `<span class="an-box">${f1(acc.b)}</span>`, 'an-big');
+    h += '<div class="an-sep"></div>';
+    h += MAIN.map((k) => cntRow(k)).join('');
     if (EXTRA.length) {
-      h += `<tr class="more"><td colspan="3"><button type="button" id="anMore" class="link" aria-label="Mostrar mais">▾</button></td></tr>`;
-      h += EXTRA.map((k) => row(k, true)).join('');
+      h += `<div class="an-more"><button type="button" id="anMore" class="link" aria-label="Mostrar mais">▾</button></div>`;
+      h += EXTRA.map((k) => cntRow(k, true)).join('');
     }
+    h += '<div class="an-sep"></div>';
+    h += pair(`<span class="an-box">${rating(acc.w)}</span>`, 'Classificação estimada', `<span class="an-box">${rating(acc.b)}</span>`, 'an-big');
+    h += pair(`<span class="an-medal">${medal(acc.w)}</span>`, 'Revisão do treinador', `<span class="an-medal">${medal(acc.b)}</span>`);
+    h += '<div class="an-sep"></div>';
     ['Abertura', 'Meio-jogo', 'Final'].forEach((name, p) => {
       const c = (col) => {
         const v = avg(ph[col][p]),
           k = phCls(v);
         return k ? badge(k) : '–';
       };
-      h += `<tr class="phase"><td>${name}</td><td>${c('w')}</td><td>${c('b')}</td></tr>`;
+      h += pair(c('w'), name, c('b'), 'an-ph');
     });
-    $('#anSummary').innerHTML = h + '</table>';
+    $('#anSummary').innerHTML = h + '</div>';
     $('#anCoach').textContent = coachLine(rates, an.evals, positions);
     drawGraph();
     const cell = (k) =>
@@ -2284,7 +2307,7 @@ if (typeof document === 'undefined') {
   $('#anSummary').addEventListener('click', (e) => {
     const b = e.target.closest('#anMore');
     if (!b) return;
-    const tb = $('#anSummary table');
+    const tb = $('#anSummary .an-sum');
     tb.classList.toggle('open');
     b.textContent = tb.classList.contains('open') ? '▴' : '▾';
   });
@@ -2324,7 +2347,16 @@ if (typeof document === 'undefined') {
     $('#anDetail').textContent = t;
     drawGraph();
     const cur = document.querySelector('#anMoves .mv-btn.on');
-    if (cur) cur.scrollIntoView({ block: 'nearest' });
+    if (cur) {
+      // rola só a lista de lances, nunca a página (para o tabuleiro não sair do ecrã no telemóvel)
+      const sc = cur.closest('.an-scroll');
+      if (sc) {
+        const a = cur.getBoundingClientRect(),
+          b = sc.getBoundingClientRect();
+        if (a.top < b.top) sc.scrollTop -= b.top - a.top;
+        else if (a.bottom > b.bottom) sc.scrollTop += a.bottom - b.bottom;
+      }
+    }
   }
 
   function closeAnalysis() {
