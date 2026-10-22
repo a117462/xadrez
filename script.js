@@ -615,7 +615,9 @@ const pieceCount = (b) => b.filter((p) => p && 'QRBN'.includes(p[1])).length;
 //             abaixo de +500 CP (assim sacrifícios que levam a mate forçado, os clássicos, contam). Exige análise com MultiPV.
 //             Se um sacrifício joga fora a vantagem (perde > 100 CP e deixa de estar melhor / passa a estar perdido) -> blunder.
 //  excellent  0-15 CP · good 15-40 · inaccuracy 40-100 · mistake 100-200 · blunder > 200
-// Perdas em posições já decididas (ambos os lados da conta >= +500 ou <= -500 CP) não contam.
+// Posição já decidida (antes e depois >= +500 ou <= -500 CP): o resultado não muda, então não há Erro nem Erro crasso.
+// Mesmo assim os lances são comparados numa escala maior (até ±2000 CP): Excelente só se for o melhor lance ou quase
+// (perda <= 15), Boa até 100, e o pior rótulo possível é Imprecisão. Assim a fase em que o jogo já acabou não vira só "Excelente".
 function rateMoves(positions, mvs, evals, shallow) {
   const ev = shallow || evals,
     out = [];
@@ -627,7 +629,13 @@ function rateMoves(positions, mvs, evals, shallow) {
     const beforeCp = clampCp(e.score), // melhor linha
       afterCp = clampCp(-ev[k + 1].score); // lance jogado
     let cpLoss = same ? 0 : Math.max(0, beforeCp - afterCp);
-    if ((beforeCp >= 500 && afterCp >= 500) || (beforeCp <= -500 && afterCp <= -500)) cpLoss = 0;
+    const decided = (beforeCp >= 500 && afterCp >= 500) || (beforeCp <= -500 && afterCp <= -500);
+    let decidedLoss = 0;
+    if (decided) {
+      const wide = (x) => Math.max(-2000, Math.min(2000, x)); // escala maior, só para comparar lances aqui
+      decidedLoss = same ? 0 : Math.max(0, wide(e.score) - wide(-ev[k + 1].score));
+      cpLoss = 0;
+    }
     // perda em % de chance de vitória: usada só na precisão e no resumo do Coach
     const loss = same || e.n <= 1 ? 0 : Math.max(0, winPct(beforeCp) - winPct(afterCp));
 
@@ -638,12 +646,12 @@ function rateMoves(positions, mvs, evals, shallow) {
     if (k < 30 && isBookPos(positions[k + 1])) cls = 'book';
     else if (e.n <= 1 || onlyNonMate) cls = 'forced';
     else {
-      cls = classifyLoss(cpLoss);
+      cls = decided ? (decidedLoss <= 15 ? 'excellent' : decidedLoss <= 100 ? 'good' : 'inaccuracy') : classifyLoss(cpLoss);
       if (hasPV && sac >= 2 && cpLoss <= 10 && afterCp >= 0 && clampCp(e.score2) < 500) cls = 'brilliant';
       else if (sac >= 2 && cpLoss > 100 && ((beforeCp >= 100 && afterCp <= 30) || (afterCp <= -300 && beforeCp > -300))) cls = 'blunder';
     }
     const free = cls === 'book' || cls === 'forced'; // livro e jogada forçada nunca perdem nada
-    out.push({ loss: free ? 0 : loss, cp: free ? 0 : cpLoss, cls, acc: accuracyOf(free ? 0 : loss), mover: pos.turn, same, sac });
+    out.push({ loss: free ? 0 : loss, cp: free ? 0 : decided ? decidedLoss : cpLoss, cls, acc: accuracyOf(free ? 0 : loss), mover: pos.turn, same, sac, decided });
   });
   return out;
 }
@@ -2386,6 +2394,7 @@ if (typeof document === 'undefined') {
     if (!r.same && e.move && r.cls !== 'book') t += ` O motor preferia ${moveText(positions[k], e.move)} (perda de ${r.cp} CP).`;
     t += ` Avaliação (brancas): ${fmtEval(e.score, positions[k].turn)} → ${fmtEval(an.evals[k + 1].score, positions[k + 1].turn)}.`;
     if (CLS[r.cls].note) t += ' ' + CLS[r.cls].note;
+    if (r.decided && r.cls !== 'book' && r.cls !== 'forced') t += ' A posição já estava decidida: este lance não mudou o resultado.';
     $('#anDetail').textContent = t;
     drawGraph();
     const cur = document.querySelector('#anMoves .mv-btn.on');
